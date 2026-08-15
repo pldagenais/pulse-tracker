@@ -44,6 +44,7 @@ export function staticSnapshots(todayKey, addDays) {
     { key: 'tokenflow', kind: 'insights', path: '/api/token-flow?days=30' },
     { key: 'claudeai', kind: 'insights', path: '/api/claudeai' },
     { key: 'usagewindow', kind: 'status', path: '/api/usage-window' },
+    { key: 'status', kind: 'status', path: '/api/status' },
   ];
 }
 

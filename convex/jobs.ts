@@ -25,7 +25,9 @@ export const list = query({
   args: { limit: v.optional(v.number()) },
   handler: async (ctx, { limit }) => {
     await requireUser(ctx);
-    return await ctx.db.query("jobs").order("desc").take(Math.min(limit ?? 20, 50));
+    const jobs = await ctx.db.query("jobs").order("desc").take(Math.min(limit ?? 20, 50));
+    // Same envelope as GET /api/jobs — the SPA reads `.jobs` in both modes.
+    return { jobs, running: jobs.filter((j) => j.status === "running").length };
   },
 });
 

@@ -26,7 +26,10 @@ export function useLive(): LiveState {
 }
 
 const WATCHDOG_MS = 90_000;
+// The agent mirrors `live` every 15s but the heavier snapshots only every 60s,
+// so refetching the page queries faster than that costs reads and buys nothing.
 const CLOUD_POLL_MS = 15_000;
+const CLOUD_INVALIDATE_MS = 60_000;
 
 /** Cloud mode: poll the mirrored live snapshot; no SSE exists to connect to. */
 function CloudLiveProvider({ children }: { children: ReactNode }) {
@@ -36,6 +39,7 @@ function CloudLiveProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let disposed = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
+    let lastInvalidated = 0;
 
     const tick = async () => {
       if (timer) clearTimeout(timer); // a refocus must not start a second chain
@@ -44,8 +48,11 @@ function CloudLiveProvider({ children }: { children: ReactNode }) {
         const sessions = await api.get<LiveSession[] | null>('/api/live');
         if (disposed) return;
         setState({ connection: 'live', sessions: sessions ?? [], ingest: null });
-        for (const key of LIVE_KEYS) {
-          queryClient.invalidateQueries({ queryKey: key, refetchType: 'active' });
+        if (Date.now() - lastInvalidated >= CLOUD_INVALIDATE_MS) {
+          lastInvalidated = Date.now();
+          for (const key of LIVE_KEYS) {
+            queryClient.invalidateQueries({ queryKey: key, refetchType: 'active' });
+          }
         }
       } catch {
         if (!disposed) setState((s) => ({ ...s, connection: 'reconnecting' }));

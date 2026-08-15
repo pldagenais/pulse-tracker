@@ -73,5 +73,38 @@ test("sessions.list returns payloads newest first", async () => {
     }
   });
   const asUser = await asAllowedUser(t);
-  expect(await asUser.query(api.sessions.list, {})).toEqual([{ id: "new" }, { id: "old" }]);
+  // The envelope must match GET /api/sessions: the SPA reads `.rows` in both
+  // modes, and a bare array here crashes the dashboard.
+  const res = await asUser.query(api.sessions.list, {});
+  expect(res.rows).toEqual([{ id: "new" }, { id: "old" }]);
+  expect(res.total).toBe(2);
+});
+
+test("journal.list is wrapped in the same envelope as the REST route", async () => {
+  const t = convexTest(schema);
+  await t.run(async (ctx) => {
+    await ctx.db.insert("journal", {
+      localId: 7,
+      ts: 100,
+      text: "did a thing",
+      projectPath: "C:/p",
+      projectName: "Pulse",
+      sessionId: null,
+      source: "claude",
+    });
+  });
+  const asUser = await asAllowedUser(t);
+  const res = await asUser.query(api.journal.list, {});
+  expect(res.rows).toEqual([
+    expect.objectContaining({ id: 7, text: "did a thing" }),
+  ]);
+  expect(res.total).toBe(1);
+});
+
+test("prompts.search is wrapped in the same envelope as the REST route", async () => {
+  const t = convexTest(schema);
+  const asUser = await asAllowedUser(t);
+  const res = await asUser.query(api.prompts.search, {});
+  expect(res.rows).toEqual([]);
+  expect(res).toHaveProperty("pageSize");
 });
