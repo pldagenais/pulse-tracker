@@ -1,0 +1,11 @@
+# Only the SPA is deployed. The server, its data, and local tooling stay
+# on the machine that runs Pulse.
+data/
+server/
+hooks/
+scripts/
+docs/
+convex/_generated/ai/
+.claude/
+.agents/
+*.log

@@ -9,10 +9,12 @@ import { api } from '../../lib/api';
 import { routinesQuery } from '../../lib/queries';
 import type { CloudRoutine } from '../../lib/types';
 import { fmtRelative } from '../../lib/format';
-import { Card, Skeleton } from '../ui';
+import { Card, Skeleton, Switch } from '../ui';
+import { useT } from '../../lib/i18n';
 import { cn } from '../../lib/cn';
 
 export function RoutinesCard() {
+  const { t, tf } = useT();
   const q = useQuery(routinesQuery());
   const queryClient = useQueryClient();
   const [showFired, setShowFired] = useState(false);
@@ -39,7 +41,7 @@ export function RoutinesCard() {
 
   return (
     <Card
-      title={`cloud routines${q.data ? ` · ${active.length} active` : ''}`}
+      title={`${t('run.routinesTitle')}${q.data ? tf('run.activeSuffix', { n: active.length }) : ''}`}
       action={
         <span className="flex items-center gap-2">
           <a href="https://claude.ai/code/routines" target="_blank" rel="noreferrer"
@@ -49,8 +51,8 @@ export function RoutinesCard() {
           <button
             onClick={() => act('refresh', () => api.get('/api/routines?refresh=1'))}
             disabled={busy != null}
-            aria-label="Refresh routines"
-            title="Refresh from claude.ai (runs a headless session — 20-60s)"
+            aria-label={t('run.refreshRoutinesAria')}
+            title={t('run.refreshRoutinesTitle')}
             className="rounded border border-line p-1 text-dim hover:text-ink disabled:opacity-50"
           >
             <RefreshCw size={11} className={cn((q.isFetching || busy === 'refresh') && 'animate-spin')} />
@@ -61,7 +63,7 @@ export function RoutinesCard() {
     >
       {q.isLoading && (
         <div className="px-4 py-3">
-          <div className="mb-2 font-mono text-[12px] text-dim">fetching your routines through a headless session — 20-60s on first load…</div>
+          <div className="mb-2 font-mono text-[12px] text-dim">{t('run.routinesLoading')}</div>
           <Skeleton className="h-20" />
         </div>
       )}
@@ -73,7 +75,7 @@ export function RoutinesCard() {
           onToggle={() => act(r.id, () => api.put(`/api/routines/${r.id}`, { enabled: !r.enabled }))} />
       ))}
       {q.data && active.length === 0 && (
-        <div className="px-4 py-3 text-xs text-dim">No active routines.</div>
+        <div className="px-4 py-3 text-xs text-dim">{t('run.noActiveRoutines')}</div>
       )}
 
       {fired.length > 0 && (
@@ -81,7 +83,7 @@ export function RoutinesCard() {
           onClick={() => setShowFired((s) => !s)}
           className="w-full border-t border-line px-4 py-2 text-left font-mono text-[11px] uppercase tracking-wider text-dim hover:text-mid"
         >
-          {showFired ? '▾' : '▸'} {fired.length} fired one-shot{fired.length === 1 ? '' : 's'} (auto check-ins etc.)
+          {showFired ? '▾' : '▸'} {tf(fired.length === 1 ? 'run.firedOne' : 'run.firedMany', { n: fired.length })}
         </button>
       )}
       {showFired && fired.map((r) => (
@@ -90,33 +92,25 @@ export function RoutinesCard() {
 
       <CreateRoutine environments={q.data?.environments ?? []} onCreated={refresh} />
       <div className="border-t border-line px-4 py-2 font-mono text-[11px] text-dim">
-        shows the 20 most recent — the routines API doesn't paginate through this bridge; full list &amp; deletion on claude.ai/code/routines
+        {t('run.routinesFooter')}
       </div>
     </Card>
   );
 }
 
 function RoutineRow({ r, busy, onRun, onToggle }: { r: CloudRoutine; busy: string | null; onRun: () => void; onToggle: (() => void) | null }) {
+  const { t, tf } = useT();
   const schedule = r.cron
-    ? `cron ${r.cron} (UTC)`
+    ? tf('run.cronUtc', { cron: r.cron })
     : r.endedReason === 'run_once_fired'
-      ? `ran ${r.lastFiredAt ? fmtRelative(r.lastFiredAt) : ''}`
+      ? tf('run.ranWhen', { when: r.lastFiredAt ? fmtRelative(r.lastFiredAt) : '' })
       : r.runOnceAt
-        ? `once @ ${r.runOnceAt.slice(0, 16)}Z`
+        ? tf('run.onceAt', { ts: r.runOnceAt.slice(0, 16) })
         : '—';
   return (
     <div className="flex items-center gap-3 border-b border-line/60 px-4 py-2 last:border-0">
       {onToggle ? (
-        <button
-          onClick={onToggle}
-          disabled={busy === r.id}
-          role="switch"
-          aria-checked={r.enabled}
-          aria-label={`Toggle ${r.name}`}
-          className={cn('relative h-4 w-8 shrink-0 rounded-full border disabled:opacity-50', r.enabled ? 'border-claude/60 bg-claude/30' : 'border-line2 bg-raise')}
-        >
-          <span className={cn('absolute top-0.5 h-2.5 w-2.5 rounded-full transition-all', r.enabled ? 'left-[18px] bg-claude' : 'left-0.5 bg-dim')} />
-        </button>
+        <Switch checked={r.enabled} onChange={onToggle} disabled={busy === r.id} aria-label={tf('run.toggleName', { name: r.name })} />
       ) : (
         <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-dim/40" />
       )}
@@ -124,14 +118,14 @@ function RoutineRow({ r, busy, onRun, onToggle }: { r: CloudRoutine; busy: strin
         <div className="truncate text-xs text-ink">{r.name}</div>
         <div className="truncate font-mono text-[11px] text-dim">
           {schedule}
-          {r.enabled && r.nextRunAt ? ` · next ${fmtRelative(r.nextRunAt)}` : ''}
+          {r.enabled && r.nextRunAt ? tf('run.nextSuffix', { when: fmtRelative(r.nextRunAt) }) : ''}
         </div>
       </div>
       <button
         onClick={onRun}
         disabled={busy === r.id}
-        aria-label={`Run ${r.name} now`}
-        title="Run now (headless — 20-60s to dispatch)"
+        aria-label={tf('run.runNameNowAria', { name: r.name })}
+        title={t('run.runNowHeadlessTitle')}
         className="shrink-0 rounded border border-line p-1 text-dim hover:text-claude disabled:opacity-50"
       >
         <Play size={11} />
@@ -141,6 +135,7 @@ function RoutineRow({ r, busy, onRun, onToggle }: { r: CloudRoutine; busy: strin
 }
 
 function CreateRoutine({ environments, onCreated }: { environments: { id: string; name: string }[]; onCreated: () => void }) {
+  const { t } = useT();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
   const [prompt, setPrompt] = useState('');
@@ -178,7 +173,7 @@ function CreateRoutine({ environments, onCreated }: { environments: { id: string
         onClick={() => setOpen(true)}
         className="flex w-full items-center gap-1.5 border-t border-line px-4 py-2.5 font-mono text-[11px] uppercase tracking-wider text-mid hover:text-claude"
       >
-        <Plus size={11} /> new routine
+        <Plus size={11} /> {t('run.newRoutine')}
       </button>
     );
   }
@@ -187,15 +182,15 @@ function CreateRoutine({ environments, onCreated }: { environments: { id: string
     <div className="space-y-2 border-t border-line px-4 py-3">
       <div className="flex flex-wrap items-center gap-2">
         <CloudCog size={13} className="text-dim" />
-        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="routine name"
+        <input value={name} onChange={(e) => setName(e.target.value)} placeholder={t('run.routineNamePlaceholder')}
           className="w-48 rounded border border-line bg-surface2 px-2 py-1.5 text-xs text-ink outline-none placeholder:text-dim" />
-        <select value={envId} onChange={(e) => setEnvId(e.target.value)} aria-label="Environment"
+        <select value={envId} onChange={(e) => setEnvId(e.target.value)} aria-label={t('run.ariaEnvironment')}
           className="rounded border border-line bg-surface2 px-2 py-1.5 text-xs text-ink outline-none">
-          <option value="">— environment —</option>
+          <option value="">{t('run.envOption')}</option>
           {environments.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
         </select>
         <label className="flex items-center gap-1.5 font-mono text-[12px] text-dim">
-          cron (UTC)
+          {t('run.cronUtcLabel')}
           <input value={cron} onChange={(e) => setCron(e.target.value)}
             className="w-28 rounded border border-line bg-surface2 px-2 py-1.5 font-mono text-xs text-ink outline-none" />
         </label>
@@ -204,7 +199,7 @@ function CreateRoutine({ environments, onCreated }: { environments: { id: string
         value={prompt}
         onChange={(e) => setPrompt(e.target.value)}
         rows={3}
-        placeholder="What should the cloud agent do? It starts with zero context — be self-contained. It runs in Anthropic's cloud with a fresh git checkout, not on this machine."
+        placeholder={t('run.routinePromptPlaceholder')}
         className="w-full resize-y rounded-md border border-line bg-surface2 px-3 py-2 font-mono text-xs leading-5 text-ink outline-none placeholder:text-dim focus:border-claude/50"
       />
       <div className="flex flex-wrap items-center gap-2.5">
@@ -213,14 +208,14 @@ function CreateRoutine({ environments, onCreated }: { environments: { id: string
           disabled={busy || !name.trim() || !prompt.trim() || !envId}
           className="rounded-md border border-claude/50 bg-claude/10 px-3 py-1.5 font-mono text-[11px] uppercase tracking-wider text-claude hover:bg-claude/20 disabled:opacity-40"
         >
-          {busy ? 'creating (20-60s)…' : 'create routine'}
+          {busy ? t('run.creating') : t('run.createRoutine')}
         </button>
-        <button onClick={() => setOpen(false)} className="font-mono text-[11px] uppercase tracking-wider text-dim hover:text-mid">cancel</button>
-        <span className="font-mono text-[11px] text-dim">min interval 1h · cron is UTC (you are UTC-4)</span>
+        <button onClick={() => setOpen(false)} className="font-mono text-[11px] uppercase tracking-wider text-dim hover:text-mid">{t('run.cancel')}</button>
+        <span className="font-mono text-[11px] text-dim">{t('run.cronHint')}</span>
         {err && <span className="w-full font-mono text-[11px] text-danger">{err}</span>}
         {result && (
           <a href={result.startsWith('http') ? result : undefined} target="_blank" rel="noreferrer" className="w-full font-mono text-[11px] text-ok hover:underline">
-            created ✓ {result.startsWith('http') ? result : ''}
+            {t('run.createdCheck')} {result.startsWith('http') ? result : ''}
           </a>
         )}
       </div>

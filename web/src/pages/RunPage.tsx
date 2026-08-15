@@ -6,27 +6,34 @@ import { api } from '../lib/api';
 import { jobsQuery, templatesQuery, projectsQuery, schedulesQuery } from '../lib/queries';
 import type { Project, PromptTemplate, PulseJob, ScheduledJob } from '../lib/types';
 import { fmtClock, fmtDuration, fmtRelative, plural } from '../lib/format';
-import { Badge, Card, EmptyState } from '../components/ui';
+import { Badge, Card, EmptyState, Switch, WriteError, useWriteAction } from '../components/ui';
+import { MODE } from '../lib/source';
+import { useT } from '../lib/i18n';
+
+/** Writes that need the local machine are disabled rather than left to fail. */
+const LOCAL = MODE === 'local';
 import { cn } from '../lib/cn';
 
-const DOWS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+/* Option lists hold message KEYS, translated at render inside components. */
+const DOW_KEYS = ['run.dowSun', 'run.dowMon', 'run.dowTue', 'run.dowWed', 'run.dowThu', 'run.dowFri', 'run.dowSat'] as const;
 
 const MODELS = [
-  { value: '', label: 'default model' },
-  { value: 'claude-haiku-4-5', label: 'Haiku 4.5 · fastest/cheapest' },
-  { value: 'claude-sonnet-5', label: 'Sonnet 5' },
-  { value: 'claude-opus-5', label: 'Opus 5' },
+  { value: '', labelKey: 'run.modelDefault' },
+  { value: 'claude-haiku-4-5', labelKey: 'run.modelHaiku' },
+  { value: 'claude-sonnet-5', labelKey: 'run.modelSonnet' },
+  { value: 'claude-opus-5', labelKey: 'run.modelOpus' },
 ] as const;
 
 const MODES = [
-  { value: 'default', label: 'read-only (tools that need approval are denied)' },
-  { value: 'acceptEdits', label: 'accept edits (can modify files in the project)' },
-  { value: 'bypassPermissions', label: '⚠ bypass permissions (unrestricted)' },
+  { value: 'default', labelKey: 'run.modeDefault' },
+  { value: 'acceptEdits', labelKey: 'run.modeAcceptEdits' },
+  { value: 'bypassPermissions', labelKey: 'run.modeBypass' },
 ] as const;
 
 const VAR_RE = /\{\{(\w+)\}\}/g;
 
 export default function RunPage() {
+  const { t, tf } = useT();
   const [params, setParams] = useSearchParams();
   const projects = useQuery(projectsQuery());
   const templates = useQuery(templatesQuery());
@@ -126,42 +133,42 @@ export default function RunPage() {
     <div className="fade-up w-full space-y-4 p-5">
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
         {/* launcher */}
-        <Card title="run claude headless" bodyClassName="space-y-3 p-4">
+        <Card title={t('run.launcherTitle')} bodyClassName="space-y-3 p-4">
           <div className="flex flex-wrap items-center gap-2.5">
             <select
               value={projectId}
               onChange={(e) => setProjectId(e.target.value)}
-              aria-label="Project"
+              aria-label={t('run.ariaProject')}
               className="min-w-52 rounded-md border border-line bg-surface2 px-3 py-2 text-[14px] text-ink outline-none"
             >
               {roots.map((p) => (
                 <option key={p.id} value={p.id}>{p.name}</option>
               ))}
             </select>
-            <select value={model} onChange={(e) => setModel(e.target.value)} aria-label="Model"
+            <select value={model} onChange={(e) => setModel(e.target.value)} aria-label={t('run.ariaModel')}
               className="rounded-md border border-line bg-surface2 px-3 py-2 text-[14px] text-ink outline-none">
-              {MODELS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+              {MODELS.map((m) => <option key={m.value} value={m.value}>{t(m.labelKey)}</option>)}
             </select>
             <label className="flex items-center gap-1.5 font-mono text-[12px] text-dim">
-              max turns
+              {t('run.maxTurns')}
               <input
                 type="number" min={1} max={50} value={maxTurns} onChange={(e) => setMaxTurns(e.target.value)}
                 className="w-16 rounded border border-line bg-surface2 px-2 py-1.5 text-xs text-ink outline-none"
               />
             </label>
-            <label className="flex items-center gap-1.5 font-mono text-[12px] text-dim" title="Run the same prompt on a second model and compare the runs — forces read-only permissions">
-              A/B vs
+            <label className="flex items-center gap-1.5 font-mono text-[12px] text-dim" title={t('run.abTitle')}>
+              {t('run.abVs')}
               <select value={abModel} onChange={(e) => setAbModel(e.target.value)}
                 className="rounded border border-line bg-surface2 px-2 py-1.5 text-xs text-ink outline-none">
-                <option value="">off</option>
-                {MODELS.filter((m) => m.value && m.value !== model).map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+                <option value="">{t('run.abOff')}</option>
+                {MODELS.filter((m) => m.value && m.value !== model).map((m) => <option key={m.value} value={m.value}>{t(m.labelKey)}</option>)}
               </select>
             </label>
           </div>
           <textarea
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
-            placeholder={'What should Claude do in this project?\nUse {{variables}} for reusable templates.'}
+            placeholder={t('run.promptPlaceholder')}
             rows={5}
             className="w-full resize-y rounded-md border border-line bg-surface2 px-3 py-2.5 font-mono text-xs leading-5 text-ink outline-none placeholder:text-dim focus:border-claude/50"
           />
@@ -180,11 +187,11 @@ export default function RunPage() {
             </div>
           )}
           <div className="space-y-1.5">
-            <div className="microlabel">permissions for this unattended run</div>
+            <div className="microlabel">{t('run.permsLabel')}</div>
             {MODES.map((m) => (
               <label key={m.value} className="flex cursor-pointer items-center gap-2 text-xs text-mid">
                 <input type="radio" name="mode" checked={mode === m.value} onChange={() => setMode(m.value)} />
-                <span className={cn(m.value === 'bypassPermissions' && 'text-danger')}>{m.label}</span>
+                <span className={cn(m.value === 'bypassPermissions' && 'text-danger')}>{t(m.labelKey)}</span>
               </label>
             ))}
           </div>
@@ -194,51 +201,51 @@ export default function RunPage() {
               disabled={launch.isPending || !prompt.trim() || !projectId || varsMissing}
               className="flex items-center gap-2 rounded-md border border-claude/50 bg-claude/10 px-4 py-2 font-mono text-[12px] uppercase tracking-wider text-claude hover:bg-claude/20 disabled:opacity-40"
             >
-              <Rocket size={13} /> {launch.isPending ? 'launching…' : 'launch'}
+              <Rocket size={13} /> {launch.isPending ? t('run.launching') : t('run.launch')}
             </button>
-            {varsMissing && <span className="font-mono text-[11px] text-dim">fill the {'{{variables}}'} first</span>}
+            {varsMissing && <span className="font-mono text-[11px] text-dim">{t('run.fillVars')}</span>}
             {launch.isError && <span className="font-mono text-[12px] text-danger">{(launch.error as Error).message}</span>}
             {abLink && (
               <Link to={abLink} className="font-mono text-[12px] uppercase tracking-wider text-claude hover:underline">
-                a/b launched — open comparison →
+                {t('run.abLaunched')}
               </Link>
             )}
             <span className="ml-auto flex items-center gap-1.5">
               <input
                 value={tplName}
                 onChange={(e) => setTplName(e.target.value)}
-                placeholder="template name…"
+                placeholder={t('run.tplNamePlaceholder')}
                 className="w-36 rounded border border-line bg-surface2 px-2 py-1.5 text-xs text-ink outline-none placeholder:text-dim"
               />
               <button
                 onClick={saveTemplate}
                 disabled={savingTpl || !tplName.trim() || !prompt.trim()}
-                title="Save the current form as a reusable template"
+                title={t('run.saveTplTitle')}
                 className="flex items-center gap-1.5 rounded-md border border-line px-2.5 py-1.5 font-mono text-[11px] uppercase tracking-wider text-mid hover:bg-surface2 hover:text-ink disabled:opacity-40"
               >
-                <Save size={11} /> save
+                <Save size={11} /> {t('run.save')}
               </button>
             </span>
           </div>
         </Card>
 
         {/* template library */}
-        <Card title="templates" bodyClassName="p-0">
+        <Card title={t('run.templatesTitle')} bodyClassName="p-0">
           {!templates.data?.length && (
             <div className="px-4 py-6 text-center text-xs text-dim">
-              No templates yet — write a prompt and save it. <br />Use {'{{variables}}'} for the parts that change.
+              {t('run.tplEmpty1')} <br />{t('run.tplEmpty2')}
             </div>
           )}
           <div className="max-h-[420px] overflow-y-auto">
-            {(templates.data ?? []).map((t) => (
-              <TemplateRow key={t.id} t={t} onApply={() => applyTemplate(t)} />
+            {(templates.data ?? []).map((tpl) => (
+              <TemplateRow key={tpl.id} tpl={tpl} onApply={() => applyTemplate(tpl)} />
             ))}
           </div>
         </Card>
       </div>
 
-      <Card title={`runs${jobs.data?.running ? ` · ${jobs.data.running} active` : ''}`} bodyClassName="p-0">
-        {!jobs.data?.jobs.length && <EmptyState title="No headless runs yet" hint="Launched jobs appear here with live output, then ingest as normal sessions." />}
+      <Card title={`${t('run.runsTitle')}${jobs.data?.running ? tf('run.activeSuffix', { n: jobs.data.running }) : ''}`} bodyClassName="p-0">
+        {!jobs.data?.jobs.length && <EmptyState title={t('run.noRunsTitle')} hint={t('run.noRunsHint')} />}
         <div className="divide-y divide-line/60">
           {(jobs.data?.jobs ?? []).map((j) => <JobRow key={j.id} j={j} />)}
         </div>
@@ -259,6 +266,7 @@ function SchedulesCard({
   currentMode: string;
   currentMaxTurns: string;
 }) {
+  const { t } = useT();
   const q = useQuery(schedulesQuery());
   const queryClient = useQueryClient();
   const [name, setName] = useState('');
@@ -292,40 +300,40 @@ function SchedulesCard({
   };
 
   return (
-    <Card title="schedules" bodyClassName="p-0">
+    <Card title={t('run.schedulesTitle')} bodyClassName="p-0">
       <div className="flex flex-wrap items-center gap-2 border-b border-line px-4 py-3">
         <CalendarClock size={13} className="text-dim" />
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="schedule name — uses the launcher form above as its job"
+          placeholder={t('run.scheduleNamePlaceholder')}
           className="min-w-56 flex-1 rounded border border-line bg-surface2 px-2 py-1.5 text-xs text-ink outline-none placeholder:text-dim"
         />
-        <select value={cadence} onChange={(e) => setCadence(e.target.value as 'daily' | 'weekly')} aria-label="Cadence"
+        <select value={cadence} onChange={(e) => setCadence(e.target.value as 'daily' | 'weekly')} aria-label={t('run.ariaCadence')}
           className="rounded border border-line bg-surface2 px-2 py-1.5 text-xs text-ink outline-none">
-          <option value="daily">daily</option>
-          <option value="weekly">weekly</option>
+          <option value="daily">{t('run.daily')}</option>
+          <option value="weekly">{t('run.weekly')}</option>
         </select>
         {cadence === 'weekly' && (
-          <select value={dow} onChange={(e) => setDow(e.target.value)} aria-label="Day of week"
+          <select value={dow} onChange={(e) => setDow(e.target.value)} aria-label={t('run.ariaDow')}
             className="rounded border border-line bg-surface2 px-2 py-1.5 text-xs text-ink outline-none">
-            {DOWS.map((d, i) => <option key={d} value={i}>{d}</option>)}
+            {DOW_KEYS.map((k, i) => <option key={k} value={i}>{t(k)}</option>)}
           </select>
         )}
-        <input type="time" value={time} onChange={(e) => setTime(e.target.value)} aria-label="Time"
+        <input type="time" value={time} onChange={(e) => setTime(e.target.value)} aria-label={t('run.ariaTime')}
           className="rounded border border-line bg-surface2 px-2 py-1.5 font-mono text-xs text-ink outline-none" />
         <button
           onClick={create}
           disabled={!name.trim() || !currentPrompt.trim()}
           className="rounded-md border border-claude/50 bg-claude/10 px-3 py-1.5 font-mono text-[11px] uppercase tracking-wider text-claude hover:bg-claude/20 disabled:opacity-40"
         >
-          add schedule
+          {t('run.addSchedule')}
         </button>
         {err && <span className="font-mono text-[11px] text-danger">{err}</span>}
       </div>
       {!q.data?.length && (
         <div className="px-4 py-4 text-xs text-dim">
-          No schedules. Fill the launcher form, name it here, and Pulse runs it on cadence — e.g. every morning: “update dependencies, run npm run check, summarize anything broken”.
+          {t('run.schedulesEmpty')}
         </div>
       )}
       {(q.data ?? []).map((s) => (
@@ -336,16 +344,17 @@ function SchedulesCard({
 }
 
 function ScheduleRow({ s, roots, onChange }: { s: ScheduledJob; roots: Project[]; onChange: () => void }) {
+  const { t, tf } = useT();
   const projectName = roots.find((p) => p.path === s.projectPath)?.name ?? s.projectPath.split(/[\\/]/).pop();
-  const toggle = async () => {
+  const toggle = useWriteAction(async () => {
     await api.put(`/api/schedules/${s.id}`, { enabled: !s.enabled });
     onChange();
-  };
-  const del = async () => {
-    if (!window.confirm(`Delete schedule "${s.name}"?`)) return;
+  });
+  const del = useWriteAction(async () => {
+    if (!window.confirm(tf('run.confirmDeleteSchedule', { name: s.name }))) return;
     await api.del(`/api/schedules/${s.id}`);
     onChange();
-  };
+  });
   const runNow = async () => {
     try {
       await api.post(`/api/schedules/${s.id}/run`, {});
@@ -357,54 +366,49 @@ function ScheduleRow({ s, roots, onChange }: { s: ScheduledJob; roots: Project[]
   const failing = s.consecutiveFailures > 0;
   return (
     <div className="flex items-center gap-3 border-b border-line/60 px-4 py-2.5 last:border-0">
-      <button
-        onClick={toggle}
-        role="switch"
-        aria-checked={s.enabled}
-        aria-label={`Toggle ${s.name}`}
-        className={cn(
-          'relative h-4 w-8 shrink-0 rounded-full border',
-          s.enabled ? 'border-claude/60 bg-claude/30' : 'border-line2 bg-raise'
-        )}
-      >
-        <span className={cn('absolute top-0.5 h-2.5 w-2.5 rounded-full transition-all', s.enabled ? 'left-[18px] bg-claude' : 'left-0.5 bg-dim')} />
-      </button>
+      <Switch
+        checked={s.enabled}
+        onChange={() => toggle.run()}
+        disabled={toggle.pending || !LOCAL}
+        title={LOCAL ? undefined : t('run.schedulesNeedPc')}
+        aria-label={tf('run.toggleName', { name: s.name })}
+      />
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline gap-2 text-xs text-ink">
           <span className="truncate">{s.name}</span>
           <span className="shrink-0 font-mono text-[11px] text-dim">
-            {s.cadence === 'weekly' ? `${DOWS[s.dow ?? 1]} ` : 'daily '}
+            {s.cadence === 'weekly' ? `${t(DOW_KEYS[s.dow ?? 1])} ` : `${t('run.daily')} `}
             {String(s.hour).padStart(2, '0')}:{String(s.minute).padStart(2, '0')} · {projectName}
           </span>
         </div>
         <div className={cn('truncate font-mono text-[11px]', failing ? 'text-danger' : 'text-dim')}>
-          {s.lastRunAt ? `last ${fmtRelative(s.lastRunAt)} · ${s.lastStatus ?? '?'}` : 'never run'}
-          {failing && ` · ${s.consecutiveFailures} consecutive failure${s.consecutiveFailures === 1 ? '' : 's'}${!s.enabled ? ' — auto-disabled' : ''}`}
+          {s.lastRunAt ? tf('run.lastRun', { when: fmtRelative(s.lastRunAt), status: s.lastStatus ?? '?' }) : t('run.neverRun')}
+          {failing && `${tf(s.consecutiveFailures === 1 ? 'run.consecFail' : 'run.consecFails', { n: s.consecutiveFailures })}${!s.enabled ? t('run.autoDisabled') : ''}`}
         </div>
       </div>
-      <button onClick={runNow} aria-label="Run now" title="Run now" className="shrink-0 rounded border border-line p-1 text-dim hover:text-claude">
+      <WriteError error={toggle.error ?? del.error} />
+      <button onClick={runNow} disabled={!LOCAL} title={LOCAL ? t('run.runNow') : t('run.runNeedsPc')} aria-label={t('run.runNow')} className="shrink-0 rounded border border-line p-1 text-dim hover:text-claude disabled:opacity-40">
         <Play size={11} />
       </button>
-      <button onClick={del} aria-label="Delete schedule" className="shrink-0 rounded border border-line p-1 text-dim hover:border-danger/50 hover:text-danger">
+      <button onClick={() => del.run()} disabled={del.pending || !LOCAL} title={LOCAL ? undefined : t('run.deleteNeedsPc')} aria-label={t('run.deleteScheduleAria')} className="shrink-0 rounded border border-line p-1 text-dim hover:border-danger/50 hover:text-danger disabled:opacity-40">
         <Trash2 size={11} />
       </button>
     </div>
   );
 }
 
-function TemplateRow({ t, onApply }: { t: PromptTemplate; onApply: () => void }) {
+function TemplateRow({ tpl, onApply }: { tpl: PromptTemplate; onApply: () => void }) {
+  const { t, tf } = useT();
   const queryClient = useQueryClient();
-  const del = async (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (!window.confirm(`Delete template "${t.name}"?`)) return;
-    await api.del(`/api/templates/${t.id}`);
+  const del = useWriteAction(async () => {
+    if (!window.confirm(tf('run.confirmDeleteTemplate', { name: tpl.name }))) return;
+    await api.del(`/api/templates/${tpl.id}`);
     queryClient.invalidateQueries({ queryKey: ['templates'] });
-  };
-  const togglePin = async (e: React.MouseEvent) => {
-    e.stopPropagation();
-    await api.put(`/api/templates/${t.id}`, { ...t, pinned: !t.pinned });
+  });
+  const togglePin = useWriteAction(async () => {
+    await api.put(`/api/templates/${tpl.id}`, { ...tpl, pinned: !tpl.pinned });
     queryClient.invalidateQueries({ queryKey: ['templates'] });
-  };
+  });
   return (
     <div
       role="button"
@@ -415,20 +419,26 @@ function TemplateRow({ t, onApply }: { t: PromptTemplate; onApply: () => void })
     >
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5 text-xs text-ink">
-          {t.pinned && <Pin size={10} className="shrink-0 text-user" />}
-          <span className="truncate">{t.name}</span>
+          {tpl.pinned && <Pin size={10} className="shrink-0 text-user" />}
+          <span className="truncate">{tpl.name}</span>
         </div>
-        <div className="truncate font-mono text-[11px] text-dim">{t.body.replace(/\s+/g, ' ')}</div>
+        <div className="truncate font-mono text-[11px] text-dim">{tpl.body.replace(/\s+/g, ' ')}</div>
         <div className="mt-0.5 font-mono text-[10px] uppercase tracking-wider text-dim">
-          {t.runCount > 0 ? `${plural(t.runCount, 'run')}${t.lastRunAt ? ` · last ${fmtRelative(t.lastRunAt)}` : ''}` : 'never run'}
+          {tpl.runCount > 0 ? `${plural(tpl.runCount, 'run')}${tpl.lastRunAt ? tf('run.lastSuffix', { when: fmtRelative(tpl.lastRunAt) }) : ''}` : t('run.neverRun')}
         </div>
       </div>
-      <span className="hidden shrink-0 items-center gap-1 group-hover:flex">
-        <button onClick={togglePin} aria-label={t.pinned ? 'Unpin' : 'Pin'} title={t.pinned ? 'Unpin' : 'Pin (shows on project pages)'}
-          className="rounded border border-line p-1 text-dim hover:text-user">
+      {/* opacity, never display:none — a hidden control is unreachable by
+          keyboard; focus-within reveals both buttons when either is tabbed to */}
+      <span className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+        <WriteError error={togglePin.error ?? del.error} />
+        <button onClick={(e) => { e.stopPropagation(); void togglePin.run(); }} disabled={togglePin.pending || !LOCAL}
+          aria-label={tpl.pinned ? t('run.unpin') : t('run.pin')} title={LOCAL ? (tpl.pinned ? t('run.unpin') : t('run.pinTitle')) : t('run.templatesNeedPc')}
+          className="rounded border border-line p-1 text-dim hover:text-user disabled:opacity-40">
           <Pin size={10} />
         </button>
-        <button onClick={del} aria-label="Delete template" className="rounded border border-line p-1 text-dim hover:border-danger/50 hover:text-danger">
+        <button onClick={(e) => { e.stopPropagation(); void del.run(); }} disabled={del.pending || !LOCAL}
+          title={LOCAL ? undefined : t('run.templatesNeedPc')}
+          aria-label={t('run.deleteTemplateAria')} className="rounded border border-line p-1 text-dim hover:border-danger/50 hover:text-danger disabled:opacity-40">
           <Trash2 size={10} />
         </button>
       </span>
@@ -436,13 +446,22 @@ function TemplateRow({ t, onApply }: { t: PromptTemplate; onApply: () => void })
   );
 }
 
+const JOB_STATUS_KEYS = {
+  running: 'run.statusRunning',
+  done: 'run.statusDone',
+  error: 'run.statusError',
+  killed: 'run.statusKilled',
+} as const;
+
 function JobRow({ j }: { j: PulseJob }) {
+  const { t } = useT();
   const [open, setOpen] = useState(j.status === 'running');
   const queryClient = useQueryClient();
-  const kill = async () => {
+  // not gated on LOCAL: remotely this queues a kill the local agent executes
+  const kill = useWriteAction(async () => {
     await api.post(`/api/jobs/${j.id}/kill`, {});
     queryClient.invalidateQueries({ queryKey: ['jobs'] });
-  };
+  });
   const tone = j.status === 'running' ? 'text-claude' : j.status === 'done' ? 'text-ok' : j.status === 'killed' ? 'text-dim' : 'text-danger';
   return (
     <div className="px-4 py-2.5">
@@ -451,30 +470,31 @@ function JobRow({ j }: { j: PulseJob }) {
           <ChevronRight size={12} className={cn('transition-transform', open && 'rotate-90')} />
         </button>
         <span className={cn('shrink-0 font-mono text-[11px] uppercase tracking-wider', tone)}>
-          {j.status === 'running' ? <span className="flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-claude pulse-dot" />running</span> : j.status}
+          {j.status === 'running' ? <span className="flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-claude pulse-dot" />{t('run.statusRunning')}</span> : t(JOB_STATUS_KEYS[j.status])}
         </span>
-        <span className="min-w-0 flex-1 truncate text-xs text-ink">{j.prompt.replace(/\s+/g, ' ')}</span>
-        {j.resumeOf && <Badge>resume</Badge>}
+        <span className="min-w-0 flex-1 truncate text-xs text-ink">{(j.prompt ?? '').replace(/\s+/g, ' ')}</span>
+        {j.resumeOf && <Badge>{t('run.badgeResume')}</Badge>}
         {j.model && <Badge>{j.model.replace('claude-', '')}</Badge>}
         <span className="shrink-0 font-mono text-[11px] text-dim">
           {fmtClock(j.createdAt)}
           {j.endedAt && j.startedAt ? ` · ${fmtDuration(j.endedAt - j.startedAt)}` : ''}
         </span>
+        <WriteError error={kill.error} />
         {j.status === 'running' && (
-          <button onClick={kill} aria-label="Kill job" title="Kill this run"
-            className="shrink-0 rounded border border-line p-1 text-dim hover:border-danger/50 hover:text-danger">
+          <button onClick={() => kill.run()} disabled={kill.pending} aria-label={t('run.killJobAria')} title={t('run.killJobTitle')}
+            className="shrink-0 rounded border border-line p-1 text-dim hover:border-danger/50 hover:text-danger disabled:opacity-40">
             <Square size={9} fill="currentColor" />
           </button>
         )}
         {j.sessionId && j.status !== 'running' && (
           <Link to={`/sessions/${j.sessionId}`} className="shrink-0 font-mono text-[11px] uppercase tracking-wider text-mid hover:text-claude">
-            session →
+            {t('run.sessionLink')}
           </Link>
         )}
       </div>
       {open && (
         <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap rounded border border-line bg-bg px-3 py-2 font-mono text-[11px] leading-4 text-mid">
-          {j.outputTail?.trim() || (j.status === 'running' ? 'waiting for output…' : 'no output captured')}
+          {j.outputTail?.trim() || (j.status === 'running' ? t('run.waitingOutput') : t('run.noOutput'))}
         </pre>
       )}
     </div>

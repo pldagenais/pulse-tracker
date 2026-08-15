@@ -8,6 +8,7 @@ import type { PromptRow } from '../lib/types';
 import { fmtClock, fmtCount, fmtDay } from '../lib/format';
 import { projectColor } from '../lib/colors';
 import { Badge, EmptyState, SkeletonRows } from '../components/ui';
+import { useT } from '../lib/i18n';
 
 /** FTS snippets delimit matches with control chars \u0001..\u0002 (set
  * server-side via char(1)/char(2)) — build <mark> nodes from those offsets. */
@@ -37,6 +38,7 @@ function renderSnippet(snippet: string): ReactNode[] {
 }
 
 export default function PromptsPage() {
+  const { t, tf } = useT();
   const [params, setParams] = useSearchParams();
   const q = params.get('q') ?? '';
   const project = params.get('project');
@@ -107,7 +109,7 @@ export default function PromptsPage() {
             ref={inputRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="Search every prompt you've ever sent…  ( / )"
+            placeholder={t('insights.searchPlaceholder')}
             className="w-full rounded-md border border-line bg-surface py-2 pl-9 pr-3 text-[14px] text-ink outline-none placeholder:text-dim focus:border-claude/50"
           />
         </div>
@@ -116,7 +118,7 @@ export default function PromptsPage() {
           onChange={(e) => setFilter('project', e.target.value || null)}
           className="rounded-md border border-line bg-surface px-2 py-2 text-xs text-mid outline-none"
         >
-          <option value="">all projects</option>
+          <option value="">{t('insights.allProjects')}</option>
           {(projects.data ?? [])
             .filter((p) => p.parentProjectId == null)
             .map((p) => (
@@ -128,24 +130,24 @@ export default function PromptsPage() {
           onChange={(e) => setFilter('kind', e.target.value || null)}
           className="rounded-md border border-line bg-surface px-2 py-2 text-xs text-mid outline-none"
         >
-          <option value="">all kinds</option>
-          <option value="typed">typed</option>
-          <option value="command">slash command</option>
-          <option value="legacy">legacy</option>
+          <option value="">{t('insights.allKinds')}</option>
+          <option value="typed">{t('insights.kindTyped')}</option>
+          <option value="command">{t('insights.kindCommand')}</option>
+          <option value="legacy">{t('insights.kindLegacy')}</option>
         </select>
         <input
           type="date"
           value={from ?? ''}
           onChange={(e) => setFilter('from', e.target.value || null)}
-          aria-label="From date"
-          className="rounded-md border border-line bg-surface px-2 py-2 text-xs text-mid outline-none [color-scheme:dark]"
+          aria-label={t('insights.fromDate')}
+          className="rounded-md border border-line bg-surface px-2 py-2 text-xs text-mid outline-none"
         />
         <input
           type="date"
           value={to ?? ''}
           onChange={(e) => setFilter('to', e.target.value || null)}
-          aria-label="To date"
-          className="rounded-md border border-line bg-surface px-2 py-2 text-xs text-mid outline-none [color-scheme:dark]"
+          aria-label={t('insights.toDate')}
+          className="rounded-md border border-line bg-surface px-2 py-2 text-xs text-mid outline-none"
         />
         {(from || to) && (
           <button
@@ -157,8 +159,8 @@ export default function PromptsPage() {
                 return next;
               });
             }}
-            aria-label="Clear date range"
-            title="Clear date range"
+            aria-label={t('insights.clearDates')}
+            title={t('insights.clearDates')}
             className="rounded-md border border-line px-2 py-2 text-xs text-dim hover:text-ink"
           >
             ✕
@@ -167,19 +169,23 @@ export default function PromptsPage() {
         <a
           href={`/api/export${qs({ what: 'prompts', format: 'csv' })}`}
           className="flex items-center gap-1.5 rounded-md border border-line px-2.5 py-2 font-mono text-[11px] uppercase tracking-wider text-dim hover:text-ink"
-          title="Export all prompts as CSV"
+          title={t('insights.exportCsv')}
         >
           <Download size={12} /> csv
         </a>
       </div>
 
       <div className="font-mono text-[12px] text-dim">
-        {result.isLoading ? 'searching…' : `${fmtCount(total)} prompts${q ? ` matching “${q}”` : ''}`}
+        {result.isLoading
+          ? t('insights.searching')
+          : q
+            ? tf('insights.promptCountMatching', { n: fmtCount(total), q })
+            : tf('insights.promptCount', { n: fmtCount(total) })}
       </div>
 
       {result.isLoading && <SkeletonRows n={8} />}
       {!result.isLoading && rows.length === 0 && (
-        <EmptyState title={q ? `No matches for “${q}”` : 'No prompts yet'} />
+        <EmptyState title={q ? tf('insights.noMatches', { q }) : t('insights.noPrompts')} />
       )}
 
       <div className="space-y-1.5">
@@ -194,7 +200,7 @@ export default function PromptsPage() {
           disabled={result.isFetchingNextPage}
           className="w-full rounded-md border border-line py-2 font-mono text-[12px] uppercase tracking-wider text-mid hover:bg-surface2 hover:text-ink"
         >
-          {result.isFetchingNextPage ? 'loading…' : `load more (${fmtCount(total - rows.length)} left)`}
+          {result.isFetchingNextPage ? t('insights.loading') : tf('insights.loadMoreLeft', { n: fmtCount(total - rows.length) })}
         </button>
       )}
     </div>
@@ -202,6 +208,7 @@ export default function PromptsPage() {
 }
 
 function PromptResult({ r }: { r: PromptRow }) {
+  const { t } = useT();
   const [params, setParams] = useSearchParams();
   const open = () => {
     if (r.kind === 'legacy') return; // no session detail exists for legacy prompts
@@ -231,7 +238,7 @@ function PromptResult({ r }: { r: PromptRow }) {
             next.set('project', String(r.projectId));
             setParams(next);
           }}
-          title="Filter by project"
+          title={t('insights.filterByProject')}
           className="-mx-1 flex items-center gap-2 rounded px-1 hover:text-ink"
         >
           <span className="h-1.5 w-1.5 rounded-sm" style={{ background: projectColor(r.projectId) }} />
@@ -239,7 +246,7 @@ function PromptResult({ r }: { r: PromptRow }) {
         </button>
         {r.sessionTitle && <span className="truncate text-dim/80">· {r.sessionTitle}</span>}
         <span className="ml-auto shrink-0">{fmtDay(r.ts)} {fmtClock(r.ts)}</span>
-        {r.kind !== 'typed' && <Badge tone={r.kind === 'command' ? 'user' : 'default'}>{r.kind === 'command' ? 'cmd' : 'legacy'}</Badge>}
+        {r.kind !== 'typed' && <Badge tone={r.kind === 'command' ? 'user' : 'default'}>{r.kind === 'command' ? t('insights.badgeCmd') : t('insights.badgeLegacy')}</Badge>}
       </div>
       <div className="mt-1 line-clamp-3 font-mono text-xs leading-5 text-ink/90">
         {r.snippet ? renderSnippet(r.snippet) : r.text}

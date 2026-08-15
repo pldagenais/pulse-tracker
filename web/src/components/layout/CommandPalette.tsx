@@ -9,6 +9,8 @@ import { projectsQuery, sessionsQuery } from '../../lib/queries';
 import { projectColor } from '../../lib/colors';
 import { fmtRelative } from '../../lib/format';
 import { cn } from '../../lib/cn';
+import { useT } from '../../lib/i18n';
+import type { MsgKey } from '../../i18n';
 
 interface Item {
   id: string;
@@ -18,21 +20,22 @@ interface Item {
   run: () => void;
 }
 
-const PAGES: { label: string; to: string; icon: ReactNode }[] = [
-  { label: 'Dashboard', to: '/', icon: <LayoutDashboard size={14} /> },
-  { label: 'Timeline · Day', to: '/timeline/day', icon: <CalendarDays size={14} /> },
-  { label: 'Timeline · Week', to: '/timeline/week', icon: <CalendarDays size={14} /> },
-  { label: 'Timeline · Month', to: '/timeline/month', icon: <CalendarDays size={14} /> },
-  { label: 'Projects', to: '/projects', icon: <FolderGit2 size={14} /> },
-  { label: 'Prompts', to: '/prompts', icon: <MessagesSquare size={14} /> },
-  { label: 'Insights', to: '/insights', icon: <TrendingUp size={14} /> },
-  { label: 'Journal', to: '/journal', icon: <BookOpen size={14} /> },
-  { label: 'Weekly digest', to: '/digest', icon: <FileText size={14} /> },
-  { label: 'Project report', to: '/report', icon: <FileText size={14} /> },
-  { label: 'Status', to: '/status', icon: <Activity size={14} /> },
+const PAGES: { key: MsgKey; to: string; icon: ReactNode }[] = [
+  { key: 'nav.dashboard', to: '/', icon: <LayoutDashboard size={14} /> },
+  { key: 'palette.timelineDay', to: '/timeline/day', icon: <CalendarDays size={14} /> },
+  { key: 'palette.timelineWeek', to: '/timeline/week', icon: <CalendarDays size={14} /> },
+  { key: 'palette.timelineMonth', to: '/timeline/month', icon: <CalendarDays size={14} /> },
+  { key: 'nav.projects', to: '/projects', icon: <FolderGit2 size={14} /> },
+  { key: 'nav.prompts', to: '/prompts', icon: <MessagesSquare size={14} /> },
+  { key: 'nav.insights', to: '/insights', icon: <TrendingUp size={14} /> },
+  { key: 'nav.journal', to: '/journal', icon: <BookOpen size={14} /> },
+  { key: 'nav.digestTitle', to: '/digest', icon: <FileText size={14} /> },
+  { key: 'nav.reportTitle', to: '/report', icon: <FileText size={14} /> },
+  { key: 'nav.status', to: '/status', icon: <Activity size={14} /> },
 ];
 
 export function CommandPalette({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const { t } = useT();
   const [q, setQ] = useState('');
   const [sel, setSel] = useState(0);
   const navigate = useNavigate();
@@ -54,19 +57,19 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
       navigate(to);
     };
     const all: Item[] = [
-      ...PAGES.map((p) => ({ id: `page:${p.to}`, label: p.label, sub: 'page', icon: p.icon, run: go(p.to) })),
+      ...PAGES.map((p) => ({ id: `page:${p.to}`, label: t(p.key), sub: t('palette.page'), icon: p.icon, run: go(p.to) })),
       ...(projects.data ?? [])
         .filter((p) => p.parentProjectId == null)
         .map((p) => ({
           id: `proj:${p.id}`,
           label: p.name,
-          sub: 'project',
+          sub: t('palette.project'),
           icon: <span className="h-2 w-2 rounded-sm" style={{ background: projectColor(p.id) }} />,
           run: go(`/projects/${p.id}`),
         })),
       ...(sessions.data?.rows ?? []).map((s) => ({
         id: `sess:${s.id}`,
-        label: s.title ?? s.lastPrompt ?? s.firstPrompt ?? 'Untitled session',
+        label: s.title ?? s.lastPrompt ?? s.firstPrompt ?? t('palette.untitled'),
         sub: `${s.projectName} · ${fmtRelative(s.startedAt)}`,
         icon: <Clock size={13} className="text-dim" />,
         run: go(`/sessions/${s.id}`),
@@ -77,7 +80,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
     return all
       .filter((i) => `${i.label} ${i.sub ?? ''}`.toLowerCase().includes(needle))
       .slice(0, 12);
-  }, [q, projects.data, sessions.data, navigate, onClose]);
+  }, [q, projects.data, sessions.data, navigate, onClose, t]);
 
   useEffect(() => {
     setSel((s) => Math.min(s, Math.max(items.length - 1, 0)));
@@ -86,7 +89,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-[70]" role="dialog" aria-modal="true" aria-label="Command palette">
+    <div className="fixed inset-0 z-[70]" role="dialog" aria-modal="true" aria-label={t('palette.aria')}>
       <div className="absolute inset-0 bg-black/60" onClick={onClose} />
       <div className="glass-strong drawer-in absolute left-1/2 top-24 w-[560px] max-w-[92vw] -translate-x-1/2 overflow-hidden rounded-xl">
         <div className="flex items-center gap-2.5 border-b border-line px-4">
@@ -107,13 +110,13 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
                 items[sel]?.run();
               }
             }}
-            placeholder="Jump to a page, project, or session…"
+            placeholder={t('palette.placeholder')}
             className="w-full bg-transparent py-3.5 text-sm text-ink outline-none placeholder:text-dim"
           />
           <kbd className="rounded border border-line2 px-1.5 py-0.5 font-mono text-[11px] text-dim">esc</kbd>
         </div>
         <ul className="max-h-[380px] overflow-y-auto p-1.5">
-          {items.length === 0 && <li className="px-3 py-6 text-center text-xs text-dim">No matches.</li>}
+          {items.length === 0 && <li className="px-3 py-6 text-center text-xs text-dim">{t('palette.noMatches')}</li>}
           {items.map((it, i) => (
             <li key={it.id}>
               <button

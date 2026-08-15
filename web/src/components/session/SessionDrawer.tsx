@@ -5,10 +5,12 @@ import { X, Maximize2 } from 'lucide-react';
 import { sessionQuery } from '../../lib/queries';
 import { SessionDetailView } from './SessionDetailView';
 import { ErrorState, SkeletonRows } from '../ui';
+import { useT } from '../../lib/i18n';
 
 /** Cross-route overlay: `?session=<id>&prompt=<uuid>` opens it over any page. */
 export function SessionDrawer() {
   const [params, setParams] = useSearchParams();
+  const { t } = useT();
   const sessionId = params.get('session');
   const promptId = params.get('prompt');
   const q = useQuery(sessionQuery(sessionId));
@@ -39,18 +41,18 @@ export function SessionDrawer() {
   if (!sessionId) return null;
 
   return (
-    <div className="fixed inset-0 z-50" role="dialog" aria-modal="true" aria-label="Session detail">
+    <div className="fixed inset-0 z-50" role="dialog" aria-modal="true" aria-label={t('timeline.sessionDetailAria')}>
       <div className="absolute inset-0 bg-black/55" onClick={close} />
       <div className="drawer-in absolute inset-y-0 right-0 flex w-[620px] max-w-[92vw] flex-col border-l border-line bg-bg shadow-2xl">
         <div className="flex shrink-0 items-center justify-between border-b border-line bg-surface px-4 py-2.5">
-          <span className="microlabel">session detail</span>
+          <span className="microlabel">{t('timeline.sessionDetail')}</span>
           <div className="flex items-center gap-1">
             <Link
               to={`/sessions/${sessionId}`}
               onClick={close}
               className="rounded p-1.5 text-dim hover:bg-raise hover:text-ink"
-              title="Open full page"
-              aria-label="Open session as full page"
+              title={t('timeline.openFullPage')}
+              aria-label={t('timeline.openFullPageAria')}
             >
               <Maximize2 size={14} />
             </Link>
@@ -58,8 +60,8 @@ export function SessionDrawer() {
               onClick={close}
               autoFocus
               className="rounded p-1.5 text-dim hover:bg-raise hover:text-ink"
-              title="Close (Esc)"
-              aria-label="Close session detail"
+              title={t('timeline.closeEsc')}
+              aria-label={t('timeline.closeAria')}
             >
               <X size={15} />
             </button>
@@ -68,7 +70,9 @@ export function SessionDrawer() {
         <div className="min-h-0 flex-1 overflow-y-auto p-4">
           {q.isLoading && <SkeletonRows n={6} />}
           {q.isError && <ErrorState message={String(q.error)} onRetry={() => q.refetch()} />}
-          {q.data && <SessionDetailView detail={q.data} highlightPrompt={promptId} />}
+          {/* keyed: the drawer stays mounted across sessions, so without this
+              its child state would carry over from the previous one */}
+          {q.data && <SessionDetailView key={q.data.session.id} detail={q.data} highlightPrompt={promptId} />}
         </div>
       </div>
     </div>

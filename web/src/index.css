@@ -299,6 +299,19 @@ html.theme-anim *::after {
   background: var(--scrollbar-thumb-hover);
 }
 
+/* visually hidden, still read by assistive tech */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 /* micro-label: the uppercase tracked section header used everywhere */
 .microlabel {
   font-family: var(--font-mono);
@@ -342,7 +355,9 @@ html.theme-anim *::after {
 }
 
 /* Card section titles: display face, bolder and brighter than the old
-   microlabel so every pane announces itself. */
+   microlabel so every pane announces itself. Reserved for the Card header in
+   ui.tsx — a KPI label must use .microlabel, or the label outshouts the value
+   (this happened on Mission Control). */
 .card-title {
   font-family: var(--font-display);
   font-size: 14px;
@@ -410,12 +425,37 @@ html.theme-anim *::after {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  /* Broad reset first: near-zero durations rather than `animation: none`, so
+     one-shot animations still fire their end state (fill-mode targets render
+     finished instead of stuck at frame zero). */
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  /* The two motions the old block missed entirely:
+     — the full-viewport aurora drift every page floats over (continuous,
+       infinite — exactly what this preference exists to suppress) */
+  body::before {
+    animation: none;
+  }
+  /* — the theme-swap crossfade, whose !important transitions beat the plain
+       reset above; this must out-specify it */
+  html.theme-anim,
+  html.theme-anim *,
+  html.theme-anim *::before,
+  html.theme-anim *::after {
+    transition: none !important;
+  }
+  /* named effects: kept as documentation of intent (covered by the reset) */
   .pulse-dot, .skeleton, .fade-up > *, .drawer-in, .flash-row, .tip-in,
   .loading-bar, .loading-bar::after, .theme-flip svg, .stat-pop {
     animation: none;
   }
-  button, a, input, select, [role='switch'] {
+  .glass,
+  .glass-hover:hover {
     transition: none;
+    transform: none;
   }
   :where(button, a):not(:disabled):active {
     transform: none;

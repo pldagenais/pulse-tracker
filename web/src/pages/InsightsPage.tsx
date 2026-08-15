@@ -3,12 +3,13 @@ import { Link } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import {
   heatmapQuery, modelStatsQuery, toolStatsQuery, skillStatsQuery, hourStatsQuery, overviewQuery, dailyStatsQuery, prsQuery,
-  tokenFlowQuery, errorFeedQuery, claudeAiQuery,
+  tokenFlowQuery, errorFeedQuery, claudeAiQuery, mcpStatsQuery, compactionStatsQuery, focusStatsQuery,
 } from '../lib/queries';
 import { todayKey, addDays, weekOf } from '../lib/time';
 import type { DayStat, HeatDay } from '../lib/types';
 import { fmtCost, fmtCount, fmtDay, fmtDuration, fmtModel, fmtTokens, plural } from '../lib/format';
 import { Card, SegmentedControl, Skeleton, StatCard, Badge, useChartTip } from '../components/ui';
+import { useT } from '../lib/i18n';
 import { MiniBars } from '../components/session/SessionDetailView';
 import { modelColor, claudeCellColor, legacyCellColor, CLAUDE_ALPHAS, CLAUDE_COLOR, LEGACY_HATCH, USER_COLOR } from '../lib/colors';
 import { cn } from '../lib/cn';
@@ -16,6 +17,7 @@ import { cn } from '../lib/cn';
 type Range = '7d' | '30d' | '90d' | 'all';
 
 export default function InsightsPage() {
+  const { t, tf } = useT();
   const [range, setRange] = useState<Range>('30d');
   const to = todayKey();
   const heat = useQuery(heatmapQuery());
@@ -55,46 +57,46 @@ export default function InsightsPage() {
 
   return (
     <div className="fade-up w-full space-y-4 p-5">
-      <Card title="activity · last 12 months" bodyClassName="p-4">
+      <Card title={t('insights.activityTitle')} bodyClassName="p-4">
         {heat.data ? <YearHeatmap days={heat.data.days} /> : <Skeleton className="h-32" />}
       </Card>
 
       {records && (
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
-          <StatCard label="current streak" value={`${records.currentStreak}d`} sub={`longest ${records.longestStreak}d`} />
+          <StatCard label={t('insights.currentStreak')} value={tf('insights.daysShort', { n: records.currentStreak })} sub={tf('insights.longestShort', { n: records.longestStreak })} />
           <StatCard
-            label="busiest day"
+            label={t('insights.busiestDay')}
             value={records.busiestDay ? fmtDuration(records.busiestDay.claudeMs) : '—'}
             sub={records.busiestDay ? <Link className="hover:text-claude" to={`/timeline/day?date=${records.busiestDay.date}`}>{fmtDay(records.busiestDay.date)}</Link> : undefined}
             accent="claude"
           />
           <StatCard
-            label="longest session"
+            label={t('insights.longestSession')}
             value={records.longestSession ? fmtDuration(records.longestSession.claudeMs) : '—'}
             sub={records.longestSession ? `${records.longestSession.project} — ${records.longestSession.title ?? ''}`.slice(0, 42) : undefined}
           />
           <StatCard
-            label="most prompts · day"
+            label={t('insights.mostPromptsDay')}
             value={records.mostPromptsDay ? fmtCount(records.mostPromptsDay.prompts) : '—'}
             sub={records.mostPromptsDay ? fmtDay(records.mostPromptsDay.date) : undefined}
             accent="user"
           />
           <StatCard
-            label="biggest token day"
+            label={t('insights.biggestTokenDay')}
             value={records.biggestTokenDay ? fmtTokens(records.biggestTokenDay.outputTokens) : '—'}
-            sub={records.biggestTokenDay ? `${fmtDay(records.biggestTokenDay.date)} · output` : undefined}
+            sub={records.biggestTokenDay ? tf('insights.outputDaySub', { day: fmtDay(records.biggestTokenDay.date) }) : undefined}
           />
         </div>
       )}
 
       <div className="flex items-center justify-between">
-        <span className="microlabel">breakdowns</span>
+        <span className="microlabel">{t('insights.breakdowns')}</span>
         <SegmentedControl<Range>
           options={[
-            { value: '7d', label: '7d' },
-            { value: '30d', label: '30d' },
-            { value: '90d', label: '90d' },
-            { value: 'all', label: 'all' },
+            { value: '7d', label: t('insights.range7d') },
+            { value: '30d', label: t('insights.range30d') },
+            { value: '90d', label: t('insights.range90d') },
+            { value: 'all', label: t('insights.rangeAll') },
           ]}
           value={range}
           onChange={setRange}
@@ -102,10 +104,10 @@ export default function InsightsPage() {
       </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 2xl:grid-cols-3">
-        <Card title="models · est. cost" bodyClassName="p-4">
+        <Card title={t('insights.modelsTitle')} bodyClassName="p-4">
           {models.data ? (
             models.data.rows.length === 0 ? (
-              <div className="text-xs text-dim">No model usage in range.</div>
+              <div className="text-xs text-dim">{t('insights.noModelUsage')}</div>
             ) : (
               <div className="space-y-3">
                 <MiniBars
@@ -118,10 +120,10 @@ export default function InsightsPage() {
                 <table className="w-full font-mono text-[12px]">
                   <thead>
                     <tr className="text-left text-dim">
-                      <th className="py-1 font-normal">model</th>
-                      <th className="text-right font-normal">output</th>
-                      <th className="text-right font-normal">cache w</th>
-                      <th className="text-right font-normal">est. cost</th>
+                      <th className="py-1 font-normal">{t('insights.thModel')}</th>
+                      <th className="text-right font-normal">{t('insights.thOutput')}</th>
+                      <th className="text-right font-normal">{t('insights.thCacheW')}</th>
+                      <th className="text-right font-normal">{t('insights.thEstCost')}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -130,7 +132,13 @@ export default function InsightsPage() {
                         <td className="py-1.5 text-mid">{fmtModel(m.model)}</td>
                         <td className="text-right text-ink">{fmtTokens(m.outputTokens)}</td>
                         <td className="text-right text-dim">{fmtTokens(m.cacheWriteTokens)}</td>
-                        <td className="text-right text-user">{fmtCost(m.estCostUsd)}</td>
+                        <td
+                          className="text-right text-user"
+                          title={m.unpriced ? t('insights.unpricedTitle') : undefined}
+                        >
+                          {fmtCost(m.estCostUsd)}
+                          {m.unpriced && <span className="text-danger">*</span>}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -142,18 +150,18 @@ export default function InsightsPage() {
           )}
         </Card>
 
-        <Card title="est. cost · last 12 weeks" bodyClassName="p-4">
+        <Card title={t('insights.costWeeksTitle')} bodyClassName="p-4">
           {costDaily.data ? <CostWeeks rows={costDaily.data.rows} /> : <Skeleton className="h-32" />}
         </Card>
 
-        <Card title="tools claude uses" bodyClassName="p-4">
+        <Card title={t('insights.toolsTitle')} bodyClassName="p-4">
           {tools.data ? (
             <div className="space-y-3">
-              <MiniBars rows={tools.data.tools.slice(0, 9).map((t) => ({ label: t.name, value: t.count }))} />
+              <MiniBars rows={tools.data.tools.slice(0, 9).map((row) => ({ label: row.name, value: row.count }))} />
               {(tools.data.linesAdded > 0 || tools.data.linesRemoved > 0) && (
                 <div className="border-t border-line pt-2 font-mono text-[12px] text-dim">
-                  subagent edits: <span className="text-ok">+{fmtCount(tools.data.linesAdded)}</span>{' '}
-                  <span className="text-danger">−{fmtCount(tools.data.linesRemoved)}</span> lines
+                  {t('insights.subagentEdits')} <span className="text-ok">+{fmtCount(tools.data.linesAdded)}</span>{' '}
+                  <span className="text-danger">−{fmtCount(tools.data.linesRemoved)}</span> {t('insights.lines')}
                 </div>
               )}
             </div>
@@ -162,11 +170,17 @@ export default function InsightsPage() {
           )}
         </Card>
 
-        <Card title="busiest hours" bodyClassName="p-4">
+        <Card title={t('insights.busiestHours')} bodyClassName="p-4">
           {hours.data ? <HourHistogram rows={hours.data.rows} /> : <Skeleton className="h-32" />}
         </Card>
 
         <TokenFlowCard />
+
+        <CompactionCard from={from} to={to} />
+
+        <FocusCard from={from} to={to} />
+
+        <McpUsageCard from={from} to={to} />
 
         <PrOutcomesCard />
 
@@ -174,14 +188,14 @@ export default function InsightsPage() {
 
         <ClaudeAiCard />
 
-        <Card title="skills & plugins" bodyClassName="p-4">
+        <Card title={t('insights.skillsTitle')} bodyClassName="p-4">
           {skills.data ? (
             <div className="space-y-3">
               <div className="flex flex-wrap gap-1.5">
                 {skills.data.skills.slice(0, 16).map((s, i) => (
                   <Badge key={s.name} tone={i < 3 ? 'claude' : 'default'}>{s.name} ×{s.count}</Badge>
                 ))}
-                {skills.data.skills.length === 0 && <span className="text-xs text-dim">No skill attributions in range.</span>}
+                {skills.data.skills.length === 0 && <span className="text-xs text-dim">{t('insights.noSkills')}</span>}
               </div>
               <div className="flex flex-wrap gap-1.5 border-t border-line pt-2.5">
                 {skills.data.plugins.slice(0, 12).map((p) => (
@@ -198,18 +212,127 @@ export default function InsightsPage() {
   );
 }
 
+/* Compaction tax: how often context collapsed and what rebuilding it cost.
+ * The sharpest cost event in a long session, previously invisible. */
+function CompactionCard({ from, to }: { from: string; to: string }) {
+  const { t, tf } = useT();
+  const q = useQuery(compactionStatsQuery(from, to));
+  const d = q.data;
+  return (
+    <Card title={t('insights.compactionTitle')} bodyClassName="p-4">
+      {!d ? (
+        <Skeleton className="h-32" />
+      ) : d.compactions === 0 ? (
+        <div className="text-xs text-dim">
+          {t('insights.noCompactions')}
+        </div>
+      ) : (
+        <div className="space-y-3">
+          <div className="flex items-baseline gap-6">
+            <div>
+              <div className="font-mono text-[29px] leading-9 font-medium text-ink">{d.compactions}</div>
+              <div className="microlabel mt-0.5">{t('insights.compactions')}</div>
+            </div>
+            <div>
+              <div className="font-mono text-[29px] leading-9 font-medium text-user">{fmtTokens(d.rebuildTokens)}</div>
+              <div className="microlabel mt-0.5">{t('insights.rebuildTokens')}</div>
+            </div>
+          </div>
+          <div className="border-t border-line pt-2 font-mono text-[12px] text-dim">
+            {tf('insights.compactionFooter', { hit: d.sessionsHit, total: d.sessionsTotal })}
+          </div>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+/* Fragmentation: project switches per day and the longest unbroken run. */
+function FocusCard({ from, to }: { from: string; to: string }) {
+  const { t, tf } = useT();
+  const q = useQuery(focusStatsQuery(from, to));
+  const d = q.data;
+  const maxDay = d ? Math.max(...d.days.map((x) => x.switches), 1) : 1;
+  return (
+    <Card title={t('insights.focusTitle')} bodyClassName="p-4">
+      {!d ? (
+        <Skeleton className="h-32" />
+      ) : (
+        <div className="space-y-3">
+          <div className="flex items-baseline gap-6">
+            <div>
+              <div className="font-mono text-[29px] leading-9 font-medium text-ink">{d.switches}</div>
+              <div className="microlabel mt-0.5">{t('insights.projectSwitches')}</div>
+            </div>
+            {d.longestBlock && (
+              <div className="min-w-0">
+                <div className="truncate font-mono text-[29px] leading-9 font-medium text-claude">
+                  {fmtDuration(d.longestBlock.ms)}
+                </div>
+                <div className="microlabel mt-0.5 truncate" title={d.longestBlock.project}>
+                  {tf('insights.longestRun', { project: d.longestBlock.project })}
+                </div>
+              </div>
+            )}
+          </div>
+          {d.days.length > 0 && (
+            <div className="flex h-10 items-end gap-[2px]" aria-hidden>
+              {d.days.slice(-30).map((x) => (
+                <div
+                  key={x.date}
+                  className="min-w-[3px] flex-1 rounded-t-[2px] bg-user/60"
+                  style={{ height: `${Math.max((x.switches / maxDay) * 100, 8)}%` }}
+                  title={tf(x.switches === 1 ? 'insights.switchOne' : 'insights.switchMany', { date: x.date, n: x.switches })}
+                />
+              ))}
+            </div>
+          )}
+          <div className="border-t border-line pt-2 font-mono text-[12px] text-dim">
+            {tf('insights.focusFooter', { n: d.projectsTouched })}
+          </div>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+/* Which MCP servers earn their context cost: every configured server burns
+ * tool-definition tokens in every request, used or not. */
+function McpUsageCard({ from, to }: { from: string; to: string }) {
+  const { t, tf } = useT();
+  const q = useQuery(mcpStatsQuery(from, to));
+  const d = q.data;
+  return (
+    <Card title={t('insights.mcpTitle')} bodyClassName="p-4">
+      {!d ? (
+        <Skeleton className="h-32" />
+      ) : d.servers.length === 0 ? (
+        <div className="text-xs text-dim">{t('insights.noMcp')}</div>
+      ) : (
+        <div className="space-y-3">
+          <MiniBars rows={d.servers.slice(0, 8).map((s) => ({ label: s.name, value: s.calls }))} />
+          <div className="border-t border-line pt-2 font-mono text-[12px] text-dim">
+            {tf('insights.mcpFooter', { tool: d.tools[0] ? `${d.tools[0].name} ×${d.tools[0].calls}` : '—' })}
+          </div>
+        </div>
+      )}
+    </Card>
+  );
+}
+
 /* Token-economics flow: where input tokens come from (fresh vs cache) per
  * model, with the est. dollar figure caching saved. Sankey-style ribbons,
  * hand-rolled SVG to match the gantt aesthetic. */
 function TokenFlowCard() {
+  const { t, tf } = useT();
   const q = useQuery(tokenFlowQuery(30));
   const d = q.data;
   if (!d || d.models.length === 0) return null;
 
   const SOURCES = [
-    { key: 'cacheRead' as const, label: 'cache reads', color: 'var(--chart-bar-muted)' },
-    { key: 'cacheWrite' as const, label: 'cache writes', color: 'var(--color-user)' },
-    { key: 'freshInput' as const, label: 'fresh input', color: 'var(--color-claude)' },
+    { key: 'cacheRead' as const, label: t('insights.cacheReads'), color: 'var(--chart-bar-muted)' },
+    { key: 'cacheWrite' as const, label: t('insights.cacheWrites'), color: 'var(--color-user)' },
+    { key: 'freshInput' as const, label: t('insights.freshInput'), color: 'var(--color-claude)' },
   ];
   const models = d.models.slice(0, 4);
   const totalIn = models.reduce((t, m) => t + m.freshInput + m.cacheRead + m.cacheWrite, 0) || 1;
@@ -263,11 +386,11 @@ function TokenFlowCard() {
 
   return (
     <Card
-      title="token economics · 30d"
-      action={<span className="font-mono text-[11px] text-ok">caching saved ~{fmtCost(d.savedUsd)} est.</span>}
+      title={t('insights.tokenFlowTitle')}
+      action={<span className="font-mono text-[11px] text-ok">{tf('insights.cachingSaved', { cost: fmtCost(d.savedUsd) })}</span>}
       bodyClassName="p-4"
     >
-      <svg viewBox={`0 0 470 ${H}`} className="w-full" role="img" aria-label="Token flow from input sources to models">
+      <svg viewBox={`0 0 470 ${H}`} className="w-full" role="img" aria-label={t('insights.tokenFlowAria')}>
         {srcNodes.map((s) => (
           <g key={s.key}>
             <rect x={122} y={s.y} width={8} height={Math.max(s.h, 1)} rx={2} style={{ fill: s.color }} />
@@ -285,26 +408,27 @@ function TokenFlowCard() {
           <g key={mn.m.model}>
             <rect x={330} y={mn.y} width={8} height={Math.max(mn.h, 1)} rx={2} style={{ fill: modelColor(mn.m.model) }} />
             <text x={344} y={mn.y + mn.h / 2 + 3} fontSize={9.5} className="fill-mid font-mono">
-              {fmtModel(mn.m.model)} · {fmtTokens(mn.v)} in → {fmtTokens(mn.m.output)} out
+              {tf('insights.flowModelLine', { model: fmtModel(mn.m.model), in: fmtTokens(mn.v), out: fmtTokens(mn.m.output) })}
             </text>
           </g>
         ))}
       </svg>
       <div className="mt-1 font-mono text-[11px] text-dim">
-        input-side composition per model — cache reads are billed at ~10% of fresh input, which is where the savings come from
+        {t('insights.tokenFlowFooter')}
       </div>
     </Card>
   );
 }
 
 function PrOutcomesCard() {
+  const { t, tf } = useT();
   const q = useQuery(prsQuery());
   const d = q.data;
   if (!d || d.rows.length === 0) return null;
   return (
     <Card
-      title="pull requests · 30d"
-      action={<span className="font-mono text-[11px] text-dim">{d.merged}/{d.opened} merged{d.open ? ` · ${d.open} open` : ''}</span>}
+      title={t('insights.prTitle')}
+      action={<span className="font-mono text-[11px] text-dim">{tf('insights.prMerged', { merged: d.merged, opened: d.opened })}{d.open ? tf('insights.prOpenSuffix', { n: d.open }) : ''}</span>}
       bodyClassName="p-0"
     >
       <div className="max-h-48 overflow-y-auto">
@@ -334,14 +458,15 @@ function PrOutcomesCard() {
 /* claude.ai chat usage — imported from account data exports, deliberately
  * separate from Claude Code stats (exports carry no tokens/cost). */
 function ClaudeAiCard() {
+  const { t, tf } = useT();
   const q = useQuery(claudeAiQuery());
   const d = q.data;
   if (!d || d.chats === 0) return null;
   const max = Math.max(...d.days.map((x) => x.messages), 1);
   return (
     <Card
-      title="claude.ai chats · imported"
-      action={<span className="font-mono text-[11px] text-dim">{fmtCount(d.chats)} chats · {fmtCount(d.messages)} messages</span>}
+      title={t('insights.claudeAiTitle')}
+      action={<span className="font-mono text-[11px] text-dim">{tf('insights.claudeAiCounts', { chats: fmtCount(d.chats), messages: fmtCount(d.messages) })}</span>}
       bodyClassName="p-4"
     >
       <div className="flex h-16 items-end gap-[2px]">
@@ -350,13 +475,13 @@ function ClaudeAiCard() {
             key={x.date}
             className="min-w-0 flex-1 rounded-t-[2px] bg-[var(--chart-subagent)]"
             style={{ height: `${Math.max((x.messages / max) * 100, 4)}%`, opacity: 0.75 }}
-            title={`${fmtDay(x.date)} — ${x.chats} chat${x.chats === 1 ? '' : 's'}, ${x.messages} messages`}
+            title={tf(x.chats === 1 ? 'insights.chatDayOne' : 'insights.chatDayMany', { day: fmtDay(x.date), chats: x.chats, messages: x.messages })}
           />
         ))}
-        {d.days.length === 0 && <span className="text-xs text-dim">no chats in the last 30 days</span>}
+        {d.days.length === 0 && <span className="text-xs text-dim">{t('insights.noChats30d')}</span>}
       </div>
       <div className="mt-2 font-mono text-[11px] text-dim">
-        from your claude.ai data export — refresh anytime with scripts/import-claudeai.mjs. Coding cloud sessions are not part of claude.ai exports.
+        {t('insights.claudeAiFooter')}
       </div>
     </Card>
   );
@@ -365,17 +490,18 @@ function ClaudeAiCard() {
 /* API/tool failure feed — explains "why was today slow" and flags flaky tools.
  * Populated live going forward (and for all history after a reingest). */
 function ErrorFeedCard() {
+  const { t, tf } = useT();
   const q = useQuery(errorFeedQuery());
   const d = q.data;
   if (!d || (d.apiErrors === 0 && d.toolErrors === 0)) return null;
   return (
     <Card
-      title="errors & retries · 30d"
+      title={t('insights.errorsTitle')}
       action={
         <span className="font-mono text-[11px] text-dim">
-          {d.apiErrors > 0 && <span className="text-danger">{d.apiErrors} api</span>}
+          {d.apiErrors > 0 && <span className="text-danger">{tf('insights.apiErrors', { n: d.apiErrors })}</span>}
           {d.apiErrors > 0 && d.toolErrors > 0 && ' · '}
-          {d.toolErrors > 0 && `${d.toolErrors} tool`}
+          {d.toolErrors > 0 && tf('insights.toolErrors', { n: d.toolErrors })}
         </span>
       }
       bodyClassName="p-0"
@@ -390,7 +516,7 @@ function ErrorFeedCard() {
             <span className={cn('shrink-0 rounded-sm px-1 font-mono text-[10px] uppercase tracking-wider', r.kind === 'api' ? 'bg-danger/15 text-danger' : 'bg-user/15 text-user')}>
               {r.kind}
             </span>
-            <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-mid">{r.snippet ?? 'error'}</span>
+            <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-mid">{r.snippet ?? t('insights.errorFallback')}</span>
             <span className="shrink-0 font-mono text-[10px] text-dim">{r.project ?? ''}</span>
           </Link>
         ))}
@@ -406,6 +532,7 @@ function cellColor(d: HeatDay): string {
 }
 
 function YearHeatmap({ days }: { days: HeatDay[] }) {
+  const { t, tf, locale } = useT();
   const { hostRef, show, hide, tipEl } = useChartTip();
   const weeks = useMemo(() => {
     const out: HeatDay[][] = [];
@@ -432,7 +559,7 @@ function YearHeatmap({ days }: { days: HeatDay[] }) {
             <div key={wi} className="flex flex-col gap-[3px]">
               <div className="h-3 font-mono text-[8px] leading-3 text-dim">
                 {firstOfMonth
-                  ? new Date(firstOfMonth.date + 'T00:00').toLocaleDateString('en-US', { month: 'short' })
+                  ? new Date(firstOfMonth.date + 'T00:00').toLocaleDateString(locale === 'fr' ? 'fr-CA' : 'en-US', { month: 'short' })
                   : ' '}
               </div>
               {week.map((d) => (
@@ -451,7 +578,7 @@ function YearHeatmap({ days }: { days: HeatDay[] }) {
                         <div className="text-ink">{fmtDay(d.date)}</div>
                         <div className="text-mid">
                           {d.legacy
-                            ? `legacy: ${fmtCount(d.messages ?? 0)} messages`
+                            ? tf('insights.legacyTip', { n: fmtCount(d.messages ?? 0) })
                             : `${fmtDuration(d.claudeMs)} claude · ${plural(d.prompts, 'prompt')}`}
                         </div>
                       </>,
@@ -465,13 +592,13 @@ function YearHeatmap({ days }: { days: HeatDay[] }) {
         })}
       </div>
       <div className="mt-2 flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-wider text-dim">
-        less
+        {t('insights.legendLess')}
         {CLAUDE_ALPHAS.map((a) => (
           <span key={a} className="h-2.5 w-2.5 rounded-[2px] border border-line" style={{ background: `rgba(var(--claude-rgb),${a})` }} />
         ))}
-        more
+        {t('insights.legendMore')}
         <span className="ml-3 h-2.5 w-2.5 rounded-[2px] border border-line" style={{ backgroundImage: LEGACY_HATCH }} />
-        pre-transcript era (counts only)
+        {t('insights.legendLegacy')}
         </div>
       </div>
       {tipEl}
@@ -525,6 +652,7 @@ function HourHistogram({ rows }: { rows: { hour: number; prompts: number; claude
 /* Weekly est. cost — Monday-start weeks bucketed via weekOf(). Amber = est.
  * cost, matching the rest of the app. */
 function CostWeeks({ rows }: { rows: DayStat[] }) {
+  const { locale } = useT();
   const { hostRef, show, hide, tipEl } = useChartTip();
   const currentMonday = weekOf(todayKey())[0];
   const weeks = useMemo(() => {
@@ -571,7 +699,7 @@ function CostWeeks({ rows }: { rows: DayStat[] }) {
               />
               {firstOfMonth && (
                 <text x={x} y={H + 12} fontSize={8.5} className="fill-dim font-mono">
-                  {new Date(firstOfMonth + 'T00:00').toLocaleDateString('en-US', { month: 'short' })}
+                  {new Date(firstOfMonth + 'T00:00').toLocaleDateString(locale === 'fr' ? 'fr-CA' : 'en-US', { month: 'short' })}
                 </text>
               )}
             </g>

@@ -2,11 +2,12 @@ import fs from 'node:fs';
 import { dayBounds, addDays, todayKey, safeJsonParse } from '../lib/util.js';
 import {
   rangeDaily, heatmapDays, records, hourHistogram, modelSplit, toolUsage, skillUsage,
-  projectSplit, timelineDay, firstActivityDay,
+  projectSplit, timelineDay, firstActivityDay, mcpUsage, compactionTax, focusStats, contextSeries,
 } from '../lib/stats.js';
 import { readLines } from '../lib/lineReader.js';
 import { classifyLine, extractPrompt, assistantMeta, tsMs } from '../lib/parse.js';
 import { runClaude } from '../lib/llm.js';
+import { summaryRow } from './report.js';
 import { ratesFor } from '../lib/pricing.js';
 
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -18,9 +19,18 @@ function dayParam(v, fallback = todayKey()) {
   return typeof v === 'string' && DAY_RE.test(v) ? v : fallback;
 }
 
+/** Upper bound on any day walk in this file, so none can run away. */
+const MAX_RANGE_DAYS = 400;
+
+/**
+ * Parse from/to. Returns `null` when the range is inverted so the caller can
+ * reject it: the day walks downstream are synchronous, and an inverted range
+ * used to run forever, blocking the whole server rather than crashing it.
+ */
 function rangeParams(q, defaultDays = 30) {
   const to = dayParam(q.to);
   const from = dayParam(q.from, addDays(to, -(defaultDays - 1)));
+  if (from > to) return null;
   const [fromMs] = dayBounds(from);
   const [, toMs] = dayBounds(to);
   return { from, to, fromMs, toMs };
@@ -97,7 +107,9 @@ export function mountData(app, ctx) {
 
   app.get('/api/stats', (req, res) => {
     const groupBy = String(req.query.groupBy ?? 'day');
-    const { from, to, fromMs, toMs } = rangeParams(req.query);
+    const range = rangeParams(req.query);
+    if (!range) return bad(res, 'from must be on or before to');
+    const { from, to, fromMs, toMs } = range;
     switch (groupBy) {
       case 'day':
         return ok(res, { groupBy, from, to, rows: rangeDaily(db, from, to) });
@@ -111,6 +123,12 @@ export function mountData(app, ctx) {
         return ok(res, { groupBy, from, to, ...toolUsage(db, fromMs, toMs) });
       case 'skill':
         return ok(res, { groupBy, from, to, ...skillUsage(db, fromMs, toMs) });
+      case 'mcp':
+        return ok(res, { groupBy, from, to, ...mcpUsage(db, fromMs, toMs) });
+      case 'compaction':
+        return ok(res, { groupBy, from, to, ...compactionTax(db, fromMs, toMs) });
+      case 'focus':
+        return ok(res, { groupBy, from, to, ...focusStats(db, fromMs, toMs) });
       default:
         return bad(res, `unknown groupBy: ${groupBy}`);
     }
@@ -119,6 +137,7 @@ export function mountData(app, ctx) {
   app.get('/api/heatmap', (req, res) => {
     const to = dayParam(req.query.to);
     const from = dayParam(req.query.from, addDays(to, -370));
+    if (from > to) return bad(res, 'from must be on or before to');
     ok(res, { from, to, days: heatmapDays(db, from, to), firstActivityDay: firstActivityDay(db) });
   });
 
@@ -224,13 +243,15 @@ export function mountData(app, ctx) {
       .all(...familyIds, fromMs, toMs);
     const byDay = new Map(turnRows.map((r) => [r.d, r]));
     const daily = [];
-    for (let day = from; ; day = addDays(day, 1)) {
+    for (let day = from, i = 0; day <= to && i < MAX_RANGE_DAYS; day = addDays(day, 1), i++) {
       const r = byDay.get(day);
       daily.push({ date: day, claudeMs: r?.c ?? 0, turns: r?.n ?? 0 });
-      if (day === to) break;
     }
     ok(res, {
       project: { id: p.id, path: p.path, name: p.name, parentProjectId: p.parent_project_id, worktreeBranch: p.worktree_branch },
+      // "latest changes" prose (generated on demand from the project page);
+      // included here so the cloud mirror carries it with the project snapshot
+      changesSummary: summaryRow(db, p.path, familyIds),
       worktreeCount: familyIds.length - 1,
       totals: {
         sessions: totalsRow.n,
@@ -322,7 +343,11 @@ export function mountData(app, ctx) {
       db.prepare('SELECT url, state, merged_at FROM pr_status WHERE session_id=?').all(id)
         .map((p) => [p.url, { state: p.state, mergedAt: p.merged_at }])
     );
-    ok(res, { session: sessionRow(r), turns, prompts, agents, toolBreakdown, skills, efforts, commits, prStates });
+    ok(res, {
+      session: sessionRow(r), turns, prompts, agents, toolBreakdown, skills, efforts, commits, prStates,
+      // context-size curve with compaction marks; rides the session mirror to the cloud
+      context: contextSeries(db, id),
+    });
   });
 
   // API/tool failure feed (Insights). History predating this feature fills in

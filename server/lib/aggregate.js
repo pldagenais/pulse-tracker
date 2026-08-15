@@ -53,6 +53,21 @@ export function recomputeSessions(db, sessionIds) {
   const t = timingSettings(db);
   const S = prepare(db);
   for (const sid of sessionIds) recomputeSession(db, sid, t, S);
+  // Version counter for query-time caches (records()): any turn/aggregate
+  // change invalidates them. Lives in meta, so it survives reingest — which
+  // is exactly right, since reingest recomputes everything and bumps it.
+  if (sessionIds.length) bumpDataVersion(db);
+}
+
+export function bumpDataVersion(db) {
+  db.prepare(
+    `INSERT INTO meta(key, value) VALUES('data_version', '1')
+     ON CONFLICT(key) DO UPDATE SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT)`
+  ).run();
+}
+
+export function dataVersion(db) {
+  return Number(db.prepare(`SELECT value FROM meta WHERE key='data_version'`).get()?.value ?? 0);
 }
 
 export function recomputeAll(db) {

@@ -2,13 +2,18 @@
 // agent_runs). Interval math runs in JS — a few hundred turns — so every
 // request recomputes fresh; no rollup tables to invalidate.
 import { mergeIntervals, sumIntervals, clipInterval, dayBounds, localDayKey, addDays, todayKey } from './util.js';
-import { timingSettings } from './aggregate.js';
+import { timingSettings, dataVersion } from './aggregate.js';
 import { estimateCost } from './pricing.js';
 
 /** All turns + between-turn review gaps (user-active intervals), per session. */
 export function activityData(db) {
   const turns = db
-    .prepare('SELECT session_id, started_at, ended_at, claude_ms, est_cost_usd, output_tokens, input_tokens FROM turns ORDER BY session_id, started_at')
+    .prepare(
+      `SELECT t.session_id, t.started_at, t.ended_at, t.claude_ms, t.est_cost_usd,
+              t.output_tokens, t.input_tokens, s.has_unpriced_tokens unpriced
+         FROM turns t JOIN sessions s ON s.id = t.session_id
+        ORDER BY t.session_id, t.started_at`
+    )
     .all();
   const { idleMs } = timingSettings(db);
   const gaps = [];
@@ -22,16 +27,37 @@ export function activityData(db) {
   return { turns, gaps };
 }
 
-function pushDayClipped(bucketFor, iv, key) {
-  // an interval spans at most a couple of local days (gaps are idle-capped)
+/**
+ * Upper bound on any day walk. Ten years is far beyond any real range, and a
+ * bounded loop cannot wedge the single-threaded server: these walks are
+ * synchronous, so an unbounded one blocks HTTP, SSE, ingest and every timer.
+ */
+const MAX_DAYS = 3660;
+
+/**
+ * Cut an interval at local midnights. Returns one piece per local day the
+ * interval touches, with that day's start for range checks.
+ * @param {{start: number, end: number}} iv
+ * @returns {{day: string, dayStartMs: number, start: number, end: number}[]}
+ */
+function splitByLocalDay(iv) {
+  const out = [];
   let day = localDayKey(iv.start);
   const lastDay = localDayKey(iv.end);
-  for (;;) {
+  if (day > lastDay) return out; // inverted interval: nothing to attribute
+  for (let i = 0; i < MAX_DAYS; i++) {
     const [a, b] = dayBounds(day);
     const clipped = clipInterval(iv, a, b);
-    if (clipped) bucketFor(day)[key].push(clipped);
-    if (day === lastDay) break;
+    if (clipped) out.push({ day, dayStartMs: a, ...clipped });
+    if (day >= lastDay) break;
     day = addDays(day, 1);
+  }
+  return out;
+}
+
+function pushDayClipped(bucketFor, iv, key) {
+  for (const piece of splitByLocalDay(iv)) {
+    bucketFor(piece.day)[key].push({ start: piece.start, end: piece.end });
   }
 }
 
@@ -41,6 +67,10 @@ function pushDayClipped(bucketFor, iv, key) {
  * sessions, estCostUsd, outputTokens, subagentMs} with zero-filled days.
  */
 export function rangeDaily(db, fromDay, toDay) {
+  // An inverted range has no days in it. Returning early also stops the
+  // zero-fill walk below from never reaching its terminator. `YYYY-MM-DD`
+  // sorts lexicographically, so a string compare is the correct test.
+  if (fromDay > toDay) return [];
   const [fromMs] = dayBounds(fromDay);
   const [, toMs] = dayBounds(toDay);
   const { turns, gaps } = activityData(db);
@@ -50,25 +80,35 @@ export function rangeDaily(db, fromDay, toDay) {
   const bucketFor = (day) => {
     let d = days.get(day);
     if (!d) {
-      d = { claudeMs: 0, turns: 0, estCostUsd: 0, outputTokens: 0, sessions: new Set(), user: [], work: [], subagentMs: 0 };
+      d = { claudeMs: 0, turns: 0, estCostUsd: 0, outputTokens: 0, unpriced: false, sessions: new Set(), user: [], work: [], subagentMs: 0 };
       days.set(day, d);
     }
     return d;
   };
 
   for (const t of turns) {
-    if (t.started_at < fromMs || t.started_at >= toMs) {
-      // still contribute the wall interval if it overlaps the range
-      if (t.ended_at > fromMs && t.started_at < toMs) pushDayClipped(bucketFor, { start: t.started_at, end: t.ended_at }, 'work');
-      continue;
+    const wallEnd = Math.max(t.ended_at, t.started_at);
+    if (wallEnd <= fromMs || t.started_at >= toMs) continue; // no overlap at all
+    pushDayClipped(bucketFor, { start: t.started_at, end: wallEnd }, 'work');
+
+    // Pro-rate metrics across the local days the turn touches, by wall-time
+    // share. A turn used to dump its entire claude_ms/cost/tokens onto its
+    // START day while the gantt drew the continued block on the next day —
+    // so the day view could show work under a StatCard reading zero.
+    const dur = wallEnd - t.started_at;
+    for (const piece of splitByLocalDay({ start: t.started_at, end: wallEnd })) {
+      if (piece.dayStartMs < fromMs || piece.dayStartMs >= toMs) continue; // day outside the asked range
+      const share = dur > 0 ? (piece.end - piece.start) / dur : 1;
+      const d = bucketFor(piece.day);
+      d.claudeMs += t.claude_ms * share;
+      d.estCostUsd += (t.est_cost_usd || 0) * share;
+      d.outputTokens += (t.output_tokens || 0) * share;
+      d.sessions.add(t.session_id); // active on every day it touches
+      // a session with unpriced tokens makes every day it touched "partial"
+      if (t.unpriced) d.unpriced = true;
     }
-    const d = bucketFor(localDayKey(t.started_at));
-    d.claudeMs += t.claude_ms;
-    d.turns += 1;
-    d.estCostUsd += t.est_cost_usd || 0;
-    d.outputTokens += t.output_tokens || 0;
-    d.sessions.add(t.session_id);
-    pushDayClipped(bucketFor, { start: t.started_at, end: t.ended_at }, 'work');
+    // a count cannot be fractional: the turn is counted on its start day
+    if (t.started_at >= fromMs) bucketFor(localDayKey(t.started_at)).turns += 1;
   }
   for (const g of gaps) {
     if (g.end <= fromMs || g.start >= toMs) continue;
@@ -92,7 +132,7 @@ export function rangeDaily(db, fromDay, toDay) {
   const agentByDay = new Map(agentRows.map((r) => [r.d, r.ms]));
 
   const out = [];
-  for (let day = fromDay; ; day = addDays(day, 1)) {
+  for (let day = fromDay, i = 0; i < MAX_DAYS; day = addDays(day, 1), i++) {
     const d = days.get(day);
     const userIv = d ? mergeIntervals(d.user) : [];
     const wallIv = d ? mergeIntervals([...d.work, ...d.user]) : [];
@@ -105,10 +145,13 @@ export function rangeDaily(db, fromDay, toDay) {
       turns: d ? d.turns : 0,
       sessions: d ? d.sessions.size : 0,
       estCostUsd: d ? round2(d.estCostUsd) : 0,
-      outputTokens: d ? d.outputTokens : 0,
+      // true = a session without a price-table entry touched this day, so the
+      // day's cost is a floor, not a total
+      unpriced: d ? d.unpriced : false,
+      outputTokens: d ? Math.round(d.outputTokens) : 0,
       subagentMs: agentByDay.get(day) ?? 0,
     });
-    if (day === toDay) break;
+    if (day >= toDay) break;
   }
   return out;
 }
@@ -117,7 +160,11 @@ const round2 = (n) => Math.round(n * 100) / 100;
 
 /** Daily series merged with legacy (pre-transcript) counts, for the heatmap. */
 export function heatmapDays(db, fromDay, toDay) {
-  const daily = rangeDaily(db, fromDay, toDay);
+  return mergeLegacy(db, rangeDaily(db, fromDay, toDay), fromDay, toDay);
+}
+
+/** Overlay legacy_daily counts onto an already-computed daily series. */
+function mergeLegacy(db, daily, fromDay, toDay) {
   const legacyRows = db.prepare('SELECT * FROM legacy_daily WHERE date>=? AND date<=?').all(fromDay, toDay);
   const legacy = new Map(legacyRows.map((r) => [r.date, r]));
   return daily.map((d) => {
@@ -147,11 +194,34 @@ export function firstActivityDay(db) {
   return candidates.length ? candidates.sort()[0] : todayKey();
 }
 
-/** Streaks + personal records across the whole recorded history. */
+/** @type {{ version: number, day: string, value: any } | null} */
+let recordsCache = null;
+
+/**
+ * Streaks + personal records across the whole recorded history.
+ *
+ * Cached: /api/overview calls this on every request (and the cloud mirror
+ * calls that 90× per sync cycle) while the answer only changes when a turn is
+ * recomputed. The data-version counter in `meta` is bumped by every
+ * recomputeSessions batch, and the local day is part of the key so a streak
+ * cannot survive midnight unrecomputed.
+ */
 export function records(db) {
-  const from = firstActivityDay(db);
+  const version = dataVersion(db);
   const today = todayKey();
-  const series = heatmapDays(db, from, today);
+  if (recordsCache && recordsCache.version === version && recordsCache.day === today) {
+    return recordsCache.value;
+  }
+  const value = computeRecords(db, today);
+  recordsCache = { version, day: today, value };
+  return value;
+}
+
+function computeRecords(db, today) {
+  const from = firstActivityDay(db);
+  // one full-history walk — the heatmap overlay reuses it instead of a second
+  const dailyFull = rangeDaily(db, from, today);
+  const series = mergeLegacy(db, dailyFull, from, today);
   const isActive = (d) => d.claudeMs > 0 || d.prompts > 0 || (d.messages ?? 0) > 0;
 
   let longest = 0;
@@ -159,7 +229,6 @@ export function records(db) {
   let busiest = null;
   let mostPrompts = null;
   let biggestTokens = null;
-  const dailyFull = rangeDaily(db, from, today);
   for (let i = 0; i < series.length; i++) {
     const d = series[i];
     if (isActive(d)) {
@@ -208,9 +277,27 @@ export function hourHistogram(db, fromMs, toMs) {
     .all(fromMs, toMs);
   for (const r of promptRows) buckets[r.h].prompts = r.c;
   const turnRows = db
-    .prepare('SELECT started_at, claude_ms FROM turns WHERE started_at>=? AND started_at<?')
+    .prepare('SELECT started_at, ended_at, claude_ms FROM turns WHERE started_at>=? AND started_at<?')
     .all(fromMs, toMs);
-  for (const t of turnRows) buckets[new Date(t.started_at).getHours()].claudeMs += t.claude_ms;
+  // pro-rate across clock hours by wall-time share — reading getHours() once
+  // let a single bucket hold more than 60 minutes of a long turn
+  for (const t of turnRows) {
+    const end = Math.max(t.ended_at, t.started_at);
+    const dur = end - t.started_at;
+    if (dur === 0) {
+      buckets[new Date(t.started_at).getHours()].claudeMs += t.claude_ms;
+      continue;
+    }
+    let cur = t.started_at;
+    for (let i = 0; cur < end && i < 100_000; i++) {
+      const d = new Date(cur);
+      const hourEnd = new Date(d.getFullYear(), d.getMonth(), d.getDate(), d.getHours() + 1).getTime();
+      const pieceEnd = Math.min(hourEnd, end);
+      buckets[d.getHours()].claudeMs += t.claude_ms * ((pieceEnd - cur) / dur);
+      cur = pieceEnd;
+    }
+  }
+  for (const b of buckets) b.claudeMs = Math.round(b.claudeMs);
   return buckets;
 }
 
@@ -310,6 +397,170 @@ export function skillUsage(db, fromMs, toMs) {
     .all(fromMs, toMs)
     .map((r) => ({ name: r.name, count: r.c }));
   return { skills, plugins };
+}
+
+/**
+ * MCP server/tool usage from assistant-event attribution. This data has been
+ * written since migration v1 and read by nothing — yet every configured MCP
+ * server burns tool-definition tokens in every request, so "which servers
+ * earn their context cost?" is the question this answers.
+ */
+export function mcpUsage(db, fromMs, toMs) {
+  const servers = db
+    .prepare(
+      `SELECT attr_mcp_server name, count(*) calls, max(ts) lastUsedAt,
+              count(DISTINCT session_id) sessions
+         FROM events WHERE attr_mcp_server IS NOT NULL AND ts>=? AND ts<?
+        GROUP BY attr_mcp_server ORDER BY calls DESC LIMIT 60`
+    )
+    .all(fromMs, toMs)
+    .map((r) => ({ name: r.name, calls: r.calls, lastUsedAt: r.lastUsedAt, sessions: r.sessions }));
+  const tools = db
+    .prepare(
+      `SELECT attr_mcp_server server, attr_mcp_tool name, count(*) calls, max(ts) lastUsedAt
+         FROM events WHERE attr_mcp_server IS NOT NULL AND attr_mcp_tool IS NOT NULL AND ts>=? AND ts<?
+        GROUP BY attr_mcp_server, attr_mcp_tool ORDER BY calls DESC LIMIT 120`
+    )
+    .all(fromMs, toMs)
+    .map((r) => ({ server: r.server, name: r.name, calls: r.calls, lastUsedAt: r.lastUsedAt }));
+  return { servers, tools };
+}
+
+/**
+ * Compaction detector shared by contextSeries and compactionTax. The context
+ * a request carries is its input side: input + cache_read + cache writes. A
+ * drop of more than DROP_RATIO from the running max is a compaction (or a
+ * /clear) — context never shrinks otherwise.
+ */
+const COMPACTION_DROP_RATIO = 0.4;
+const contextOf = (r) =>
+  (r.input_tokens ?? 0) + (r.cache_read_tokens ?? 0) + (r.cache_create_5m ?? 0) + (r.cache_create_1h ?? 0);
+
+/**
+ * Context-size curve for one session, with compaction points flagged. Every
+ * credited event stores the full input-side split, so the curve of any
+ * historical session is already in the DB — the live gauge on Mission Control
+ * was previously the only place this number ever surfaced.
+ */
+export function contextSeries(db, sessionId) {
+  const rows = db
+    .prepare(
+      `SELECT ts, input_tokens, cache_read_tokens, cache_create_5m, cache_create_1h
+         FROM events WHERE session_id=? AND usage_credited=1 ORDER BY ts`
+    )
+    .all(sessionId);
+  const points = [];
+  let runningMax = 0;
+  let compactions = 0;
+  for (const r of rows) {
+    const ctx = contextOf(r);
+    if (ctx <= 0) continue;
+    const compacted = runningMax > 20_000 && ctx < runningMax * (1 - COMPACTION_DROP_RATIO);
+    if (compacted) {
+      compactions += 1;
+      runningMax = ctx; // new epoch: measure the next drop from here
+    } else {
+      runningMax = Math.max(runningMax, ctx);
+    }
+    points.push({ ts: r.ts, tokens: ctx, compacted });
+  }
+  return { points, compactions };
+}
+
+/**
+ * Compaction economics across all sessions in a window: how often context
+ * collapsed, and the cache-write tokens spent rebuilding it afterwards —
+ * the sharpest cost event in a long session, previously invisible.
+ */
+export function compactionTax(db, fromMs, toMs) {
+  const rows = db
+    .prepare(
+      `SELECT session_id, ts, input_tokens, cache_read_tokens, cache_create_5m, cache_create_1h
+         FROM events WHERE usage_credited=1 AND ts>=? AND ts<?
+        ORDER BY session_id, ts`
+    )
+    .all(fromMs, toMs);
+
+  let compactions = 0;
+  let rebuildTokens = 0; // cache writes on the first 3 requests after each drop
+  const sessionsHit = new Set();
+  let curSession = null;
+  let runningMax = 0;
+  let rebuildLeft = 0;
+  for (const r of rows) {
+    if (r.session_id !== curSession) {
+      curSession = r.session_id;
+      runningMax = 0;
+      rebuildLeft = 0;
+    }
+    const ctx = contextOf(r);
+    if (ctx <= 0) continue;
+    const writes = (r.cache_create_5m ?? 0) + (r.cache_create_1h ?? 0);
+    if (runningMax > 20_000 && ctx < runningMax * (1 - COMPACTION_DROP_RATIO)) {
+      compactions += 1;
+      sessionsHit.add(r.session_id);
+      runningMax = ctx;
+      rebuildLeft = 3;
+    } else {
+      runningMax = Math.max(runningMax, ctx);
+    }
+    if (rebuildLeft > 0) {
+      rebuildTokens += writes;
+      rebuildLeft -= 1;
+    }
+  }
+  const sessionsTotal = db
+    .prepare('SELECT count(DISTINCT session_id) c FROM events WHERE usage_credited=1 AND ts>=? AND ts<?')
+    .get(fromMs, toMs)?.c ?? 0;
+  return { compactions, sessionsHit: sessionsHit.size, sessionsTotal, rebuildTokens };
+}
+
+/**
+ * Fragmentation: how often work jumped between projects, and the longest
+ * unbroken same-project run. Insights says when you work and how much; this
+ * says how scattered it was — the metric that explains a bad week.
+ */
+export function focusStats(db, fromMs, toMs) {
+  const turns = db
+    .prepare(
+      `SELECT t.started_at, t.ended_at, COALESCE(p.parent_project_id, p.id) pid, p.name
+         FROM turns t JOIN sessions s ON s.id=t.session_id JOIN projects p ON p.id=s.project_id
+        WHERE t.started_at>=? AND t.started_at<? ORDER BY t.started_at`
+    )
+    .all(fromMs, toMs);
+
+  let switches = 0;
+  const switchesByDay = new Map();
+  let longestBlock = null; // {ms, project, start}
+  let block = null; // {pid, name, intervals: []}
+  const closeBlock = () => {
+    if (!block) return;
+    const merged = mergeIntervals(block.intervals);
+    const ms = sumIntervals(merged);
+    if (!longestBlock || ms > longestBlock.ms) {
+      longestBlock = { ms, project: block.name, start: block.intervals[0].start };
+    }
+    block = null;
+  };
+  for (const t of turns) {
+    if (block && t.pid !== block.pid) {
+      switches += 1;
+      const day = localDayKey(t.started_at);
+      switchesByDay.set(day, (switchesByDay.get(day) ?? 0) + 1);
+      closeBlock();
+    }
+    if (!block) block = { pid: t.pid, name: t.name, intervals: [] };
+    block.intervals.push({ start: t.started_at, end: Math.max(t.ended_at, t.started_at) });
+  }
+  closeBlock();
+
+  const days = [...switchesByDay.entries()].map(([date, n]) => ({ date, switches: n })).sort((a, b) => (a.date < b.date ? -1 : 1));
+  return {
+    switches,
+    days,
+    longestBlock,
+    projectsTouched: new Set(turns.map((t) => t.pid)).size,
+  };
 }
 
 /** Per-project rollup for a ms range (or all time when range is null). */

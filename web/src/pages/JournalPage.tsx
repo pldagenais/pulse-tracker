@@ -8,8 +8,10 @@ import type { JournalEntry } from '../lib/types';
 import { dayKeyOf } from '../lib/time';
 import { fmtClock, fmtDayFull } from '../lib/format';
 import { EmptyState, SkeletonRows } from '../components/ui';
+import { useT } from '../lib/i18n';
 
 export default function JournalPage() {
+  const { t } = useT();
   const [project, setProject] = useState<number | null>(null);
   const [draft, setDraft] = useState('');
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -64,7 +66,7 @@ export default function JournalPage() {
           onKeyDown={(e) => {
             if (e.key === 'Enter' && draft.trim() && !add.isPending) add.mutate(draft.trim());
           }}
-          placeholder="Add a note… (Claude also logs completed work here automatically)"
+          placeholder={t('insights.journalPlaceholder')}
           className="flex-1 rounded-md border border-line bg-surface px-3 py-2 text-[14px] text-ink outline-none placeholder:text-dim focus:border-claude/50"
         />
         <select
@@ -72,7 +74,7 @@ export default function JournalPage() {
           onChange={(e) => setProject(e.target.value ? Number(e.target.value) : null)}
           className="rounded-md border border-line bg-surface px-2 py-2 text-xs text-mid outline-none"
         >
-          <option value="">all projects</option>
+          <option value="">{t('insights.allProjects')}</option>
           {(projects.data ?? [])
             .filter((p) => p.parentProjectId == null)
             .map((p) => (
@@ -84,8 +86,8 @@ export default function JournalPage() {
       {q.isLoading && <SkeletonRows n={6} />}
       {!q.isLoading && rows.length === 0 && (
         <EmptyState
-          title="No journal entries yet"
-          hint="After Claude finishes a substantive task in any project, it posts a one-line summary here. You can also add notes yourself above."
+          title={t('insights.noJournal')}
+          hint={t('insights.journalHint')}
         />
       )}
 
@@ -119,13 +121,13 @@ export default function JournalPage() {
                           disabled={!editText.trim() || edit.isPending}
                           className="rounded border border-line px-2 py-1 font-mono text-[11px] uppercase tracking-wider text-mid hover:bg-surface2 hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
                         >
-                          {edit.isPending ? 'saving…' : 'save'}
+                          {edit.isPending ? t('insights.saving') : t('insights.save')}
                         </button>
                         <button
                           onClick={() => setEditingId(null)}
                           className="rounded px-2 py-1 font-mono text-[11px] uppercase tracking-wider text-dim hover:text-ink"
                         >
-                          cancel
+                          {t('insights.cancel')}
                         </button>
                       </div>
                     </div>
@@ -143,8 +145,8 @@ export default function JournalPage() {
                       setEditText(e.text);
                     }}
                     className="rounded p-1 text-dim opacity-0 transition-opacity hover:text-ink focus-visible:opacity-100 group-hover:opacity-100"
-                    title="Edit entry"
-                    aria-label="Edit entry"
+                    title={t('insights.editEntry')}
+                    aria-label={t('insights.editEntry')}
                   >
                     <Pencil size={13} />
                   </button>
@@ -153,8 +155,8 @@ export default function JournalPage() {
                   onClick={() => del.mutate(e.id)}
                   disabled={del.isPending}
                   className="rounded p-1 text-dim opacity-0 transition-opacity hover:text-danger focus-visible:opacity-100 group-hover:opacity-100"
-                  title="Delete entry"
-                  aria-label="Delete journal entry"
+                  title={t('insights.deleteEntry')}
+                  aria-label={t('insights.deleteJournalEntry')}
                 >
                   <Trash2 size={13} />
                 </button>
@@ -169,7 +171,7 @@ export default function JournalPage() {
           onClick={() => q.fetchNextPage()}
           className="w-full rounded-md border border-line py-2 font-mono text-[12px] uppercase tracking-wider text-mid hover:bg-surface2"
         >
-          load more
+          {t('insights.loadMore')}
         </button>
       )}
     </div>

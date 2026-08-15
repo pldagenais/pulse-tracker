@@ -5,6 +5,7 @@
 // and quota-bearing, so list results are cached and refreshes are explicit.
 import { runClaude } from './llm.js';
 import { safeJsonParse } from './util.js';
+import { readConfigFile } from './config-file.js';
 import { log } from './logger.js';
 
 const OPTS = { model: 'claude-sonnet-5', maxTurns: 6, timeoutMs: 150_000 };
@@ -110,14 +111,7 @@ export function createRoutinesBridge() {
   return { list, runNow, setEnabled, create, get cachedAt() { return cache.at; } };
 }
 
-// Cloud environments the create form offers. The harness injects these into
-// /schedule sessions; there is no discovery API Pulse can call, so this list
-// is a snapshot (2026-08-14) — update via the constant below when it changes.
-export const CLOUD_ENVIRONMENTS = [
-  { id: 'env_016MdUb4xBmGgCWdmwJhThCf', name: 'Default' },
-  { id: 'env_012PNXSpbj6VfvX8FdfHv9ca', name: 'ChargeOps2' },
-  { id: 'env_01MBH4ws6pH3DgGnPAhKVJiq', name: 'ChargeOps Website' },
-  { id: 'env_01GzpGqWVF9k4Lngf6DusBGK', name: 'ChargeOps' },
-  { id: 'env_01HrwrYDojapY12suDy61W6T', name: 'Prospector' },
-  { id: 'env_01RFgtf9kbx7Hxwu2iHdqFf2', name: 'Environnement Cloud par défaut' },
-];
+// Cloud environments the create form offers. There is no discovery API Pulse
+// can call, so this is a snapshot — and the IDs are account-scoped, so they
+// live in data/cloud-environments.json (git-ignored) rather than in source.
+export const CLOUD_ENVIRONMENTS = readConfigFile('cloud-environments', []);

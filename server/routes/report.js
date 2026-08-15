@@ -170,24 +170,96 @@ Aim for a thorough summary of roughly 400-800 words.
 RAW ACTIVITY LOG:
 `;
 
+const CHANGES_INSTRUCTIONS = `You are summarizing the latest development work on a software project for the developer returning to it.
+Write 2-3 paragraphs of plain prose — no headings, no bullet points, no code fences, no preamble.
+
+Describe the most recent changes concretely: what was built or fixed, what it enables, and where the work concentrated. Use the log's own vocabulary for features and subsystems. Past tense, specific, no filler. Skip administrative noise (model switches, retries, trivial Q&A). Do not invent work not present in the log. Roughly 120-250 words total.
+
+RAW ACTIVITY LOG (most recent work in this project):
+`;
+
 /** @type {Map<string, Promise<any>>} */
 const inflight = new Map();
+
+/**
+ * Freshness for the "latest changes" card: the summary is stale once any
+ * session in the project family has activity after it was written. A single
+ * indexed query, so /api/projects/:id can afford it on every load.
+ */
+export function summaryRow(db, projectPath, familyIds) {
+  const row = /** @type {any} */ (db
+    .prepare('SELECT markdown, created_at FROM project_summaries WHERE project_path=?')
+    .get(projectPath));
+  if (!row) return null;
+  const ph = familyIds.map(() => '?').join(',');
+  const latest = /** @type {any} */ (db
+    .prepare(`SELECT max(COALESCE(last_event_at, started_at, 0)) m FROM sessions WHERE project_id IN (${ph})`)
+    .get(...familyIds));
+  return {
+    markdown: row.markdown,
+    createdAt: row.created_at,
+    stale: (latest?.m ?? 0) > row.created_at,
+  };
+}
 
 export function mountReport(app, ctx) {
   const { db } = ctx;
 
+  /** Returns null on an inverted range so callers reject rather than walk it. */
   const parseRange = (req) => {
     const to = DAY_RE.test(String(req.query.to)) ? String(req.query.to) : todayKey();
     const from = DAY_RE.test(String(req.query.from)) ? String(req.query.from) : firstActivityDay(db);
-    return { from, to };
+    return from > to ? null : { from, to };
   };
 
   app.get('/api/report/:projectId', (req, res) => {
-    const { from, to } = parseRange(req);
+    const range = parseRange(req);
+    if (!range) return bad(res, 'from must be on or before to');
+    const { from, to } = range;
     const data = buildReport(db, Number(req.params.projectId), from, to);
     if (!data) return bad(res, 'project not found', 404);
     const { inputHash, ...rest } = data;
     ok(res, rest);
+  });
+
+  /* "Latest changes" prose for the project page: 2-3 paragraphs over the last
+   * 14 days of family activity, cached by project path. */
+  app.post('/api/projects/:id/changes-summary', async (req, res) => {
+    const projectId = Number(req.params.id);
+    const p = /** @type {any} */ (db.prepare('SELECT id, path FROM projects WHERE id=?').get(projectId));
+    if (!p) return bad(res, 'project not found', 404);
+    const lang = req.body?.lang === 'fr' ? 'fr' : 'en';
+    const key = `changes|${p.path}|${lang}`;
+    try {
+      const to = todayKey();
+      const from = addDays(to, -13);
+      const report = buildReport(db, projectId, from, to);
+      if (!report || !report.days.length) return bad(res, 'no activity in the last 14 days');
+      let job = inflight.get(key);
+      if (!job) {
+        const ids = db
+          .prepare('SELECT id FROM projects WHERE id=? OR parent_project_id=?')
+          .all(projectId, projectId)
+          .map((r) => /** @type {any} */ (r).id);
+        const input = buildAiInput(db, report, ids);
+        log.info(`changes-summary: project ${projectId} (${input.length} chars, ${lang})`);
+        const langLine = lang === 'fr' ? 'Écris la réponse entièrement en français.\n' : '';
+        job = runClaude(CHANGES_INSTRUCTIONS + langLine + input).then((markdown) => {
+          db.prepare(
+            `INSERT INTO project_summaries(project_path, markdown, created_at) VALUES(?,?,?)
+             ON CONFLICT(project_path) DO UPDATE SET markdown=excluded.markdown, created_at=excluded.created_at`
+          ).run(p.path, markdown, Date.now());
+          return markdown;
+        });
+        inflight.set(key, job);
+        job.finally(() => inflight.delete(key)).catch(() => {});
+      }
+      const markdown = await job;
+      ok(res, { markdown, createdAt: Date.now(), stale: false });
+    } catch (e) {
+      log.warn('changes-summary failed:', e instanceof Error ? e.message : String(e));
+      bad(res, `summarizer failed: ${e instanceof Error ? e.message : e}`, 500);
+    }
   });
 
   app.post('/api/report/:projectId/summarize', async (req, res) => {
@@ -209,8 +281,9 @@ export function mountReport(app, ctx) {
           .all(projectId, projectId)
           .map((r) => r.id);
         const input = buildAiInput(db, report, ids);
+        const summaryLang = req.body?.lang === 'fr' ? 'Écris la réponse entièrement en français (les titres de catégories aussi).\n' : '';
         log.info(`report: summarizing project ${projectId} ${from}..${to} (${input.length} chars)`);
-        job = runClaude(SUMMARIZE_INSTRUCTIONS + input).then((markdown) => {
+        job = runClaude(SUMMARIZE_INSTRUCTIONS + summaryLang + input).then((markdown) => {
           db.prepare(
             'INSERT INTO reports(project_id, period_from, period_to, input_hash, markdown, created_at) VALUES(?,?,?,?,?,?)'
           ).run(projectId, from, to, report.inputHash, markdown, Date.now());
@@ -230,7 +303,9 @@ export function mountReport(app, ctx) {
   });
 
   app.get('/api/report/:projectId/pdf', (req, res) => {
-    const { from, to } = parseRange(req);
+    const range = parseRange(req);
+    if (!range) return bad(res, 'from must be on or before to');
+    const { from, to } = range;
     const data = buildReport(db, Number(req.params.projectId), from, to);
     if (!data) return bad(res, 'project not found', 404);
     renderPdf(res, data);

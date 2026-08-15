@@ -3,16 +3,22 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeftRight, ExternalLink, Star } from 'lucide-react';
 import { Link } from 'react-router';
 import type { SessionDetail, SessionTurn } from '../../lib/types';
-import { Badge, Card, SkeletonRows } from '../ui';
+import { Badge, Card, SkeletonRows, WriteError, useWriteAction } from '../ui';
 import { fmtClock, fmtCost, fmtDay, fmtDuration, fmtModel, fmtTokens, fmtCount, plural } from '../../lib/format';
 import { projectColor, CLAUDE_COLOR, USER_COLOR, SUBAGENT_COLOR, BAR_MUTED } from '../../lib/colors';
 import { replayQuery } from '../../lib/queries';
 import { ContinueBox, ResumeButton } from '../actions';
 import { api } from '../../lib/api';
+import { MODE } from '../../lib/source';
+import { useT } from '../../lib/i18n';
 import { cn } from '../../lib/cn';
+
+/** Writes that need the local machine are disabled rather than left to fail. */
+const LOCAL = MODE === 'local';
 
 export function SessionDetailView({ detail, highlightPrompt }: { detail: SessionDetail; highlightPrompt?: string | null }) {
   const { session: s, turns, prompts, agents, toolBreakdown, skills, efforts, commits, prStates } = detail;
+  const { t, tf } = useT();
   const turnByPrompt = useMemo(() => {
     const m = new Map<string, SessionTurn>();
     for (const t of turns) if (t.promptUuid) m.set(t.promptUuid, t);
@@ -22,11 +28,11 @@ export function SessionDetailView({ detail, highlightPrompt }: { detail: Session
   const maxTime = Math.max(s.claudeMs, s.userActiveMs, s.subagentMs, 1);
 
   const queryClient = useQueryClient();
-  const toggleStar = async () => {
+  const star = useWriteAction(async () => {
     if (s.starred) await api.del(`/api/sessions/${s.id}/star`);
     else await api.post(`/api/sessions/${s.id}/star`);
     queryClient.invalidateQueries();
-  };
+  });
 
   const [showReplay, setShowReplay] = useState(false);
   const replay = useQuery(replayQuery(s.id, showReplay));
@@ -51,27 +57,32 @@ export function SessionDetailView({ detail, highlightPrompt }: { detail: Session
             <Link
               to={`/compare?a=${s.id}`}
               className="flex items-center gap-1 rounded-md border border-line px-2.5 py-1.5 font-mono text-[11px] uppercase tracking-wider text-mid hover:bg-surface2 hover:text-ink"
-              title="Compare this session with another"
+              title={t('timeline.compareTitle')}
             >
-              <ArrowLeftRight size={11} /> compare
+              <ArrowLeftRight size={11} /> {t('timeline.compare')}
             </Link>
             {!s.worktreeBranch && <ResumeButton sessionId={s.id} />}
           </span>
         </div>
         <div className="mt-1.5 flex items-start justify-between gap-2">
           <h2 className="font-display text-lg font-medium leading-6 text-ink">
-            {s.title ?? s.lastPrompt ?? s.firstPrompt ?? 'Untitled session'}
+            {s.title ?? s.lastPrompt ?? s.firstPrompt ?? t('timeline.untitledSession')}
           </h2>
-          <button
-            onClick={toggleStar}
-            aria-label={s.starred ? 'Unstar session' : 'Star session'}
-            className={cn('shrink-0 rounded p-1', s.starred ? 'text-user' : 'text-dim hover:text-user')}
-          >
-            <Star
-              size={15}
-              style={{ fill: s.starred ? USER_COLOR : 'none', stroke: s.starred ? USER_COLOR : 'currentColor' }}
-            />
-          </button>
+          <span className="flex shrink-0 items-center gap-1.5">
+            <WriteError error={star.error} />
+            <button
+              onClick={() => star.run()}
+              disabled={star.pending || !LOCAL}
+              title={LOCAL ? undefined : t('timeline.starNeedsPc')}
+              aria-label={s.starred ? t('timeline.unstarSession') : t('timeline.starSession')}
+              className={cn('rounded p-1 disabled:opacity-40', s.starred ? 'text-user' : 'text-dim hover:text-user')}
+            >
+              <Star
+                size={15}
+                style={{ fill: s.starred ? USER_COLOR : 'none', stroke: s.starred ? USER_COLOR : 'currentColor' }}
+              />
+            </button>
+          </span>
         </div>
         <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[12px] text-dim">
           {s.startedAt && (
@@ -114,11 +125,13 @@ export function SessionDetailView({ detail, highlightPrompt }: { detail: Session
         )}
       </div>
 
-      <TagsAndNote sessionId={s.id} tags={s.tags} note={s.note} />
+      {/* keyed: its state seeds from props, so without a key a cached session
+          would render (and then SAVE) the previously viewed session's tags */}
+      <TagsAndNote key={s.id} sessionId={s.id} tags={s.tags} note={s.note} />
 
       {/* commits landed during this session */}
       {commits.length > 0 && (
-        <Card title={`commits during this session · ${commits.length}`} bodyClassName="p-0">
+        <Card title={tf('timeline.commitsDuring', { n: commits.length })} bodyClassName="p-0">
           <div className="max-h-48 overflow-y-auto">
             {commits.map((c) => (
               <div key={c.sha} className="flex items-baseline gap-2.5 border-b border-line/60 px-4 py-2 last:border-0">
@@ -137,7 +150,7 @@ export function SessionDetailView({ detail, highlightPrompt }: { detail: Session
       )}
 
       {/* timings */}
-      <Card title="time" bodyClassName="space-y-2.5 p-4">
+      <Card title={t('timeline.timeCard')} bodyClassName="space-y-2.5 p-4">
         {turns.length >= 2 && spanMs > 0 && (
           <div className="relative h-4 w-full rounded bg-raise">
             {turns.map((t, i) => (
@@ -158,9 +171,9 @@ export function SessionDetailView({ detail, highlightPrompt }: { detail: Session
           </div>
         )}
         {([
-          ['Claude working', s.claudeMs, CLAUDE_COLOR],
-          ['You active', s.userActiveMs, USER_COLOR],
-          ['Subagent compute', s.subagentMs, SUBAGENT_COLOR],
+          [t('timeline.claudeWorkingCap'), s.claudeMs, CLAUDE_COLOR],
+          [t('timeline.youActiveCap'), s.userActiveMs, USER_COLOR],
+          [t('timeline.subagentCompute'), s.subagentMs, SUBAGENT_COLOR],
         ] as const).map(([label, ms, color]) => (
           <div key={label} className="flex items-center gap-3">
             <span className="w-32 shrink-0 text-xs text-mid">{label}</span>
@@ -176,15 +189,17 @@ export function SessionDetailView({ detail, highlightPrompt }: { detail: Session
         </div>
       </Card>
 
+      {detail.context && detail.context.points.length >= 3 && <ContextCurve context={detail.context} />}
+
       {/* tokens & cost */}
-      <Card title="tokens · est. cost" bodyClassName="p-0">
+      <Card title={t('timeline.tokensCostCard')} bodyClassName="p-0">
         <table className="w-full font-mono text-xs">
           <tbody>
             {([
-              ['input', s.inputTokens],
-              ['output', s.outputTokens],
-              ['cache read', s.cacheReadTokens],
-              ['cache write', s.cacheWriteTokens],
+              [t('timeline.input'), s.inputTokens],
+              [t('timeline.output'), s.outputTokens],
+              [t('timeline.cacheRead'), s.cacheReadTokens],
+              [t('timeline.cacheWrite'), s.cacheWriteTokens],
             ] as const).map(([label, v]) => (
               <tr key={label} className="border-b border-line/60 last:border-0">
                 <td className="px-4 py-1.5 text-dim">{label}</td>
@@ -193,7 +208,7 @@ export function SessionDetailView({ detail, highlightPrompt }: { detail: Session
             ))}
             <tr className="bg-surface2/50">
               <td className="px-4 py-2 text-dim">
-                est. API-equivalent cost{s.hasUnpricedTokens ? ' (partial)' : ''}
+                {t('timeline.estApiCost')}{s.hasUnpricedTokens ? t('timeline.partial') : ''}
               </td>
               <td className="px-4 py-2 text-right text-user">{fmtCost(s.estCostUsd)}</td>
             </tr>
@@ -203,13 +218,13 @@ export function SessionDetailView({ detail, highlightPrompt }: { detail: Session
 
       {/* prompts timeline */}
       <Card
-        title={`prompts · ${prompts.length}`}
+        title={tf('timeline.promptsCard', { n: prompts.length })}
         action={
           <button
             onClick={() => setShowReplay((v) => !v)}
             className="font-mono text-[11px] text-dim hover:text-ink"
           >
-            {showReplay ? 'hide conversation' : 'show conversation'}
+            {showReplay ? t('timeline.hideConversation') : t('timeline.showConversation')}
           </button>
         }
         bodyClassName="p-0"
@@ -268,11 +283,11 @@ export function SessionDetailView({ detail, highlightPrompt }: { detail: Session
                 ),
               )}
             </ol>
-            {replay.data?.truncated && <div className="microlabel px-4 py-2">transcript truncated</div>}
+            {replay.data?.truncated && <div className="microlabel px-4 py-2">{t('timeline.transcriptTruncated')}</div>}
           </>
         ) : (
           <>
-            {prompts.length === 0 && <div className="p-4 text-xs text-dim">No prompts recorded.</div>}
+            {prompts.length === 0 && <div className="p-4 text-xs text-dim">{t('timeline.noPrompts')}</div>}
             <ol>
               {prompts.map((p) => (
                 <PromptRowItem
@@ -291,16 +306,16 @@ export function SessionDetailView({ detail, highlightPrompt }: { detail: Session
 
       {/* activity */}
       {(toolBreakdown.length > 0 || agents.length > 0 || skills.length > 0) && (
-        <Card title="activity" bodyClassName="space-y-4 p-4">
+        <Card title={t('timeline.activityCard')} bodyClassName="space-y-4 p-4">
           {toolBreakdown.length > 0 && (
             <div>
-              <div className="microlabel mb-2">tools</div>
-              <MiniBars rows={toolBreakdown.slice(0, 8).map((t) => ({ label: t.name, value: t.count }))} />
+              <div className="microlabel mb-2">{t('timeline.tools')}</div>
+              <MiniBars rows={toolBreakdown.slice(0, 8).map((tb) => ({ label: tb.name, value: tb.count }))} />
             </div>
           )}
           {skills.length > 0 && (
             <div>
-              <div className="microlabel mb-2">skills</div>
+              <div className="microlabel mb-2">{t('timeline.skills')}</div>
               <div className="flex flex-wrap gap-1.5">
                 {skills.map((sk) => (
                   <Badge key={sk.name}>{sk.name} ×{sk.count}</Badge>
@@ -310,13 +325,13 @@ export function SessionDetailView({ detail, highlightPrompt }: { detail: Session
           )}
           {agents.length > 0 && (
             <div>
-              <div className="microlabel mb-2">subagent runs · {agents.length}</div>
+              <div className="microlabel mb-2">{tf('timeline.subagentRuns', { n: agents.length })}</div>
               <div className="max-h-56 space-y-1 overflow-y-auto pr-1">
                 {agents.map((a) => (
                   <div key={a.agentId} className="flex items-center gap-2 rounded bg-surface2/60 px-2.5 py-1.5 font-mono text-[12px]">
                     <span className="text-mid">{a.agentType ?? 'agent'}</span>
                     <span className="text-dim">{fmtModel(a.model)}</span>
-                    <span className="ml-auto text-dim">{fmtTokens(a.outputTokens)} out</span>
+                    <span className="ml-auto text-dim">{tf('timeline.tokensOut', { n: fmtTokens(a.outputTokens) })}</span>
                     <span className="w-14 text-right text-ink">{fmtDuration(a.durationMs)}</span>
                   </div>
                 ))}
@@ -330,20 +345,90 @@ export function SessionDetailView({ detail, highlightPrompt }: { detail: Session
   );
 }
 
+/**
+ * Context-size curve: the input side of every credited request IS the context
+ * at that instant. A sawtooth means compaction; each drop is ticked. Until now
+ * this number existed only as a live gauge and vanished when a session idled.
+ */
+function ContextCurve({ context }: { context: NonNullable<SessionDetail['context']> }) {
+  const { points, compactions } = context;
+  const { t } = useT();
+  const W = 860;
+  const H = 96;
+  const PAD = 4;
+  const t0 = points[0].ts;
+  const t1 = points[points.length - 1].ts;
+  const span = Math.max(t1 - t0, 1);
+  const max = Math.max(...points.map((p) => p.tokens), 1);
+  const x = (ts: number) => PAD + ((ts - t0) / span) * (W - PAD * 2);
+  const y = (tok: number) => H - PAD - (tok / max) * (H - PAD * 2);
+  const path = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${x(p.ts).toFixed(1)},${y(p.tokens).toFixed(1)}`).join(' ');
+  const area = `${path} L${x(t1).toFixed(1)},${H - PAD} L${x(t0).toFixed(1)},${H - PAD} Z`;
+  const peak = points.reduce((a, b) => (b.tokens > a.tokens ? b : a));
+  return (
+    <Card
+      title={`${t('timeline.contextWindow')}${compactions > 0 ? ` · ${plural(compactions, 'compaction')}` : ''}`}
+      bodyClassName="p-4"
+    >
+      <svg viewBox={`0 0 ${W} ${H}`} className="block w-full" aria-hidden>
+        <path d={area} fill={CLAUDE_COLOR} opacity={0.12} />
+        <path d={path} fill="none" stroke={CLAUDE_COLOR} strokeWidth={1.5} />
+        {points.filter((p) => p.compacted).map((p) => (
+          <g key={p.ts}>
+            <line x1={x(p.ts)} x2={x(p.ts)} y1={PAD} y2={H - PAD} stroke={USER_COLOR} strokeWidth={1} strokeDasharray="2 3" />
+            <circle cx={x(p.ts)} cy={y(p.tokens)} r={2.5} fill={USER_COLOR} />
+          </g>
+        ))}
+      </svg>
+      <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[12px] text-dim">
+        <span>{t('timeline.peak')} <span className="text-claude">{fmtTokens(peak.tokens)}</span> {t('timeline.at')} {fmtClock(peak.ts)}</span>
+        <span>{t('timeline.final')} <span className="text-ink">{fmtTokens(points[points.length - 1].tokens)}</span></span>
+        {compactions > 0 && (
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block h-2 w-0.5" style={{ background: USER_COLOR }} /> {t('timeline.compactionLegend')}
+          </span>
+        )}
+      </div>
+    </Card>
+  );
+}
+
 const TAG_VOCAB = ['bugfix', 'feature', 'refactor', 'exploration', 'infra', 'docs', 'review', 'wasted'];
 
 function TagsAndNote({ sessionId, tags: initialTags, note: initialNote }: { sessionId: string; tags: string[]; note: string | null }) {
   const queryClient = useQueryClient();
+  const { t, tf } = useT();
   const [tags, setTags] = useState<string[]>(initialTags);
   const [note, setNote] = useState(initialNote ?? '');
   const [suggesting, setSuggesting] = useState(false);
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [err, setErr] = useState<string | null>(null);
 
-  const save = async (nextTags: string[], nextNote: string) => {
-    await api.put(`/api/sessions/${sessionId}/meta`, { tags: nextTags, note: nextNote });
-    queryClient.invalidateQueries({ queryKey: ['session'] });
-  };
+  /**
+   * Adopts the server's echo rather than trusting the optimistic value, so a
+   * tag the server normalises or drops stops rendering as if it were accepted.
+   * On failure the optimistic value is rolled back to what was last persisted.
+   */
+  const write = useWriteAction(async (nextTags: string[], nextNote: string) => {
+    const prevTags = tags;
+    const prevNote = note;
+    try {
+      const saved = await api.put<{ tags: string[]; note: string | null }>(
+        `/api/sessions/${sessionId}/meta`,
+        { tags: nextTags, note: nextNote }
+      );
+      if (saved) {
+        setTags(saved.tags ?? nextTags);
+        setNote(saved.note ?? '');
+      }
+      queryClient.invalidateQueries({ queryKey: ['session'] });
+    } catch (e) {
+      setTags(prevTags);
+      setNote(prevNote);
+      throw e;
+    }
+  });
+  const save = (nextTags: string[], nextNote: string) => void write.run(nextTags, nextNote);
   const addTag = (t: string) => {
     const next = [...new Set([...tags, t.toLowerCase().trim()])].filter(Boolean);
     setTags(next);
@@ -362,7 +447,7 @@ function TagsAndNote({ sessionId, tags: initialTags, note: initialNote }: { sess
       const r = await api.post<{ suggestions: string[] }>(`/api/sessions/${sessionId}/autotag`, {});
       const fresh = r.suggestions.filter((t) => !tags.includes(t));
       setSuggestions(fresh);
-      if (!fresh.length) setErr('no new suggestions');
+      if (!fresh.length) setErr(t('timeline.noNewSuggestions'));
     } catch (ex) {
       setErr(ex instanceof Error ? ex.message : String(ex));
     } finally {
@@ -371,48 +456,50 @@ function TagsAndNote({ sessionId, tags: initialTags, note: initialNote }: { sess
   };
 
   return (
-    <Card title="tags & note" bodyClassName="space-y-2.5 p-4">
+    <Card title={t('timeline.tagsNote')} bodyClassName="space-y-2.5 p-4">
       <div className="flex flex-wrap items-center gap-1.5">
-        {tags.map((t) => (
-          <span key={t} className="flex items-center gap-1 rounded-full border border-claude/40 bg-claude/10 px-2 py-0.5 font-mono text-[11px] text-claude">
-            {t}
-            <button onClick={() => removeTag(t)} aria-label={`Remove tag ${t}`} className="hover:text-danger">×</button>
+        {tags.map((tag) => (
+          <span key={tag} className="flex items-center gap-1 rounded-full border border-claude/40 bg-claude/10 px-2 py-0.5 font-mono text-[11px] text-claude">
+            {tag}
+            <button onClick={() => removeTag(tag)} aria-label={tf('timeline.removeTag', { tag })} className="hover:text-danger">×</button>
           </span>
         ))}
-        {suggestions.map((t) => (
+        {suggestions.map((tag) => (
           <button
-            key={t}
-            onClick={() => addTag(t)}
-            title="Suggested — click to apply"
+            key={tag}
+            onClick={() => addTag(tag)}
+            title={t('timeline.suggestedApply')}
             className="rounded-full border border-dashed border-line2 px-2 py-0.5 font-mono text-[11px] text-dim hover:border-claude/50 hover:text-claude"
           >
-            + {t}
+            + {tag}
           </button>
         ))}
         <select
           value=""
           onChange={(e) => e.target.value && addTag(e.target.value)}
-          aria-label="Add tag"
+          aria-label={t('timeline.addTag')}
           className="rounded border border-line bg-surface2 px-1.5 py-0.5 font-mono text-[11px] text-dim outline-none"
         >
           <option value="">+ tag</option>
-          {TAG_VOCAB.filter((t) => !tags.includes(t)).map((t) => <option key={t} value={t}>{t}</option>)}
+          {TAG_VOCAB.filter((tag) => !tags.includes(tag)).map((tag) => <option key={tag} value={tag}>{tag}</option>)}
         </select>
         <button
           onClick={suggest}
-          disabled={suggesting}
+          disabled={suggesting || !LOCAL}
+          title={LOCAL ? undefined : t('timeline.aiNeedsPc')}
           className="rounded border border-line px-2 py-0.5 font-mono text-[11px] uppercase tracking-wider text-mid hover:text-claude disabled:opacity-50"
         >
-          {suggesting ? 'thinking…' : 'ai suggest'}
+          {suggesting ? t('timeline.thinking') : t('timeline.aiSuggest')}
         </button>
         {err && <span className="font-mono text-[11px] text-dim">{err}</span>}
+        <WriteError error={write.error} />
       </div>
       <textarea
         value={note}
         onChange={(e) => setNote(e.target.value)}
         onBlur={() => save(tags, note)}
         rows={2}
-        placeholder="Notes about this session — saved automatically"
+        placeholder={t('timeline.notePlaceholder')}
         className="w-full resize-y rounded-md border border-line bg-surface2 px-3 py-2 text-xs leading-5 text-ink outline-none placeholder:text-dim focus:border-claude/50"
       />
     </Card>
@@ -429,6 +516,7 @@ function PromptRowItem({
   highlight?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const { t } = useT();
   const long = text.length > 220;
   return (
     <li
@@ -438,9 +526,9 @@ function PromptRowItem({
       <div className="flex items-baseline gap-2">
         <span className="font-mono text-[11px] text-dim">{fmtClock(ts)}</span>
         {kind === 'command' && <Badge tone="user">cmd</Badge>}
-        {kind === 'legacy' && <Badge>legacy</Badge>}
+        {kind === 'legacy' && <Badge>{t('timeline.legacy')}</Badge>}
         {turn && (
-          <span className="ml-auto shrink-0 font-mono text-[11px] text-claude" title="Claude working time for this turn">
+          <span className="ml-auto shrink-0 font-mono text-[11px] text-claude" title={t('timeline.turnTimeTitle')}>
             ▸ {fmtDuration(turn.claudeMs)}
           </span>
         )}
@@ -450,7 +538,7 @@ function PromptRowItem({
           onClick={() => setExpanded((e) => !e)}
           aria-expanded={expanded}
           className={cn('mt-1 block w-full cursor-pointer whitespace-pre-wrap text-left font-mono text-xs leading-5 text-ink/90', !expanded && 'line-clamp-2')}
-          title={expanded ? 'Click to collapse' : 'Click to expand'}
+          title={expanded ? t('timeline.clickCollapse') : t('timeline.clickExpand')}
         >
           {expanded ? text : text.slice(0, 2000)}
         </button>

@@ -158,6 +158,13 @@ export function mountSystem(app, ctx) {
     ok(res, { reparsing: p });
   });
 
+  // Cheap liveness probe. The cloud mirror answers the same path from the
+  // agent heartbeat rather than the status snapshot; served here too so the
+  // path means the same thing in both modes.
+  app.get('/api/heartbeat', (req, res) => {
+    ok(res, { lastHeartbeatAt: Date.now(), tz: Intl.DateTimeFormat().resolvedOptions().timeZone });
+  });
+
   app.get('/api/status', (req, res) => {
     const count = (t) => db.prepare(`SELECT count(*) c FROM ${t}`).get().c;
     let dbSize = 0;
@@ -281,6 +288,7 @@ export function mountSystem(app, ctx) {
     const format = String(req.query.format ?? 'csv');
     const to = DAY_RE.test(String(req.query.to)) ? String(req.query.to) : todayKey();
     const from = DAY_RE.test(String(req.query.from)) ? String(req.query.from) : firstActivityDay(db);
+    if (from > to) return res.status(400).json({ ok: false, error: 'from must be on or before to' });
 
     let rows;
     let columns;

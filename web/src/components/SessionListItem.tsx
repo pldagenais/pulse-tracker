@@ -2,10 +2,12 @@ import { useSearchParams } from 'react-router';
 import { Star } from 'lucide-react';
 import type { SessionSummary } from '../lib/types';
 import { projectColor, USER_COLOR } from '../lib/colors';
-import { fmtCost, fmtDuration, fmtRelative, fmtCount, fmtModel } from '../lib/format';
+import { fmtCost, fmtDuration, fmtRelative, fmtModel, plural } from '../lib/format';
+import { useT } from '../lib/i18n';
 import { Badge } from './ui';
 
 export function SessionListItem({ s, showProject = true }: { s: SessionSummary; showProject?: boolean }) {
+  const { t } = useT();
   const [params, setParams] = useSearchParams();
   const open = () => {
     const next = new URLSearchParams(params);
@@ -20,11 +22,11 @@ export function SessionListItem({ s, showProject = true }: { s: SessionSummary; 
       <span className="h-2 w-2 shrink-0 rounded-sm" style={{ background: projectColor(s.projectId) }} />
       <span className="min-w-0 flex-1">
         <span className="block truncate text-[14px] text-ink">
-          {s.title ?? s.lastPrompt ?? s.firstPrompt ?? 'Untitled session'}
+          {s.title ?? s.lastPrompt ?? s.firstPrompt ?? t('projects.untitledSession')}
         </span>
         <span className="block truncate font-mono text-[11px] text-dim">
           {showProject && `${s.projectName} · `}
-          {fmtRelative(s.startedAt)} · {fmtCount(s.promptCount)} prompt{s.promptCount === 1 ? '' : 's'}
+          {fmtRelative(s.startedAt)} · {plural(s.promptCount, 'prompt')}
           {s.worktreeBranch ? ` · ${s.worktreeBranch}` : ''}
           {s.models.length > 0
             ? ` · ${fmtModel(s.models[0])}${s.models.length > 1 ? ` +${s.models.length - 1}` : ''}`
@@ -32,15 +34,15 @@ export function SessionListItem({ s, showProject = true }: { s: SessionSummary; 
         </span>
       </span>
       {s.endedAt == null && s.lastEventAt != null && Date.now() - s.lastEventAt < 30 * 60_000 && (
-        <Badge tone="ok">open</Badge>
+        <Badge tone="ok">{t('projects.openBadge')}</Badge>
       )}
       {s.starred && (
         <Star aria-hidden size={11} className="shrink-0" style={{ fill: USER_COLOR, stroke: USER_COLOR }} />
       )}
-      <span className="w-16 shrink-0 text-right font-mono text-[12px] text-claude" title="Claude working time">
+      <span className="w-16 shrink-0 text-right font-mono text-[12px] text-claude" title={t('projects.claudeTimeTitle')}>
         {fmtDuration(s.claudeMs)}
       </span>
-      <span className="w-14 shrink-0 text-right font-mono text-[12px] text-dim" title="Estimated API-equivalent cost">
+      <span className="w-14 shrink-0 text-right font-mono text-[12px] text-dim" title={t('projects.estCostTitle')}>
         {fmtCost(s.estCostUsd)}
       </span>
     </button>

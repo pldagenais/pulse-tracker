@@ -396,4 +396,17 @@ CREATE TABLE webhooks(
 );
 `,
   },
+  {
+    // "Latest changes" prose cache for project pages. Keyed by path, not id:
+    // reingest reassigns project ids but leaves this table alone, so a
+    // path-keyed row stays correctly attached to its project.
+    version: 12,
+    sql: `
+CREATE TABLE project_summaries(
+  project_path TEXT PRIMARY KEY,
+  markdown TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+`,
+  },
 ];

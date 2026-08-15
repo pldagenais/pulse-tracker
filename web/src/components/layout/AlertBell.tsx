@@ -7,10 +7,12 @@ import { alertsQuery } from '../../lib/queries';
 import { api } from '../../lib/api';
 import { fmtRelative } from '../../lib/format';
 import { cn } from '../../lib/cn';
+import { useT } from '../../lib/i18n';
 
 export function AlertBell() {
   const q = useQuery(alertsQuery());
   const queryClient = useQueryClient();
+  const { t, tf } = useT();
   const [open, setOpen] = useState(false);
   const unacked = q.data?.unacked ?? 0;
 
@@ -26,7 +28,7 @@ export function AlertBell() {
         onKeyDown={(e) => e.key === 'Escape' && setOpen(false)}
         aria-expanded={open}
         aria-haspopup="true"
-        aria-label={unacked ? `Alerts — ${unacked} new` : 'Alerts'}
+        aria-label={unacked ? tf('alerts.ariaCount', { n: unacked }) : t('alerts.aria')}
         className={cn(
           'relative flex h-8 w-8 items-center justify-center rounded-full border border-line bg-surface2',
           unacked ? 'text-user' : 'text-dim hover:text-mid'
@@ -44,10 +46,10 @@ export function AlertBell() {
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
           <div className="glass-strong absolute right-0 z-50 mt-2 w-[380px] rounded-xl p-2">
             <div className="flex items-center justify-between px-2 py-1">
-              <span className="microlabel">alerts</span>
+              <span className="microlabel">{t('alerts.title')}</span>
               {unacked > 0 && (
                 <button onClick={() => ack()} className="font-mono text-[11px] uppercase tracking-wider text-mid hover:text-claude">
-                  ack all
+                  {t('alerts.ackAll')}
                 </button>
               )}
             </div>
@@ -62,7 +64,7 @@ export function AlertBell() {
                     </div>
                   </div>
                   {!a.acked && (
-                    <button onClick={() => ack([a.id])} aria-label="Acknowledge" className="shrink-0 rounded border border-line p-1 text-dim hover:text-ok">
+                    <button onClick={() => ack([a.id])} aria-label={t('alerts.ack')} className="shrink-0 rounded border border-line p-1 text-dim hover:text-ok">
                       <Check size={10} />
                     </button>
                   )}
@@ -70,7 +72,7 @@ export function AlertBell() {
               ))}
               {(q.data?.alerts.length ?? 0) === 0 && (
                 <div className="px-2 py-4 text-center text-xs text-dim">
-                  No alerts yet. Set cost thresholds on the Status page — budget, daily and per-session limits, parse-failure spikes, and failed jobs all land here.
+                  {t('alerts.empty')}
                 </div>
               )}
             </div>

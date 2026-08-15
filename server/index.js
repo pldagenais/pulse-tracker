@@ -3,8 +3,8 @@ import fs from 'node:fs';
 import { openDb, getMeta, setMeta } from './lib/db.js';
 import { log } from './lib/logger.js';
 import {
-  APP_NAME, HOST, PORT, DATA_DIR, RESCAN_INTERVAL_MS, MAINTENANCE_INTERVAL_MS,
-  HOOK_EVENTS_RETENTION_MS, STALE_SESSION_SWEEP_MS,
+  APP_NAME, APP_VERSION, HOST, PORT, DATA_DIR, RESCAN_INTERVAL_MS, MAINTENANCE_INTERVAL_MS,
+  HOOK_EVENTS_RETENTION_MS, STALE_SESSION_SWEEP_MS, CLOUD_ENABLED,
 } from './config.js';
 import { createSseHub } from './sse.js';
 import { createLiveMap } from './lib/live.js';
@@ -103,6 +103,18 @@ async function startBackground() {
     prTracker.tick();
   }, 45_000);
   firstScan.unref();
+
+  // Cloud mirror — opt-in via PULSE_CONVEX_URL + PULSE_AGENT_KEY.
+  if (CLOUD_ENABLED) {
+    try {
+      const { createCloudSync } = await import('./lib/cloud/sync.js');
+      createCloudSync(db, { port: PORT, appVersion: APP_VERSION, jobs }).start();
+    } catch (e) {
+      log.error('cloud sync failed to start:', e);
+    }
+  } else {
+    log.info('cloud sync disabled (set PULSE_CONVEX_URL and PULSE_AGENT_KEY to enable)');
+  }
 
   const maintenance = setInterval(() => {
     try {

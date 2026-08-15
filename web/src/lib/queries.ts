@@ -3,7 +3,7 @@ import { api, qs } from './api';
 import type {
   Overview, TimelineDay, DayStat, HeatmapData, Project, ProjectDetail, Paged,
   SessionSummary, SessionDetail, PromptRow, JournalEntry, StatusInfo, Settings,
-  ModelRow, HourRow, ToolUsageData, SkillUsageData, ProjectSplitRow,
+  ModelRow, HourRow, ToolUsageData, SkillUsageData, McpUsageData, CompactionTaxData, FocusStatsData, ProjectSplitRow,
   ActivityRow, ReplayData, ParseFailuresData, JobsData, PromptTemplate, UsageWindowData, PrOutcomesData, ScheduledJob,
   TokenFlowData, ProjectCalendarData, ErrorFeedData, ClaudeAiData, McpServersData, ManageInventory,
   AlertsData, Webhook, RoutinesData, MemoryTree,
@@ -63,6 +63,27 @@ export const skillStatsQuery = (from: string, to: string) =>
   queryOptions({
     queryKey: ['stats', 'skill', from, to],
     queryFn: () => api.get<SkillUsageData>(`/api/stats${qs({ groupBy: 'skill', from, to })}`),
+    staleTime: 60_000,
+  });
+
+export const mcpStatsQuery = (from: string, to: string) =>
+  queryOptions({
+    queryKey: ['stats', 'mcp', from, to],
+    queryFn: () => api.get<McpUsageData>(`/api/stats${qs({ groupBy: 'mcp', from, to })}`),
+    staleTime: 60_000,
+  });
+
+export const compactionStatsQuery = (from: string, to: string) =>
+  queryOptions({
+    queryKey: ['stats', 'compaction', from, to],
+    queryFn: () => api.get<CompactionTaxData>(`/api/stats${qs({ groupBy: 'compaction', from, to })}`),
+    staleTime: 60_000,
+  });
+
+export const focusStatsQuery = (from: string, to: string) =>
+  queryOptions({
+    queryKey: ['stats', 'focus', from, to],
+    queryFn: () => api.get<FocusStatsData>(`/api/stats${qs({ groupBy: 'focus', from, to })}`),
     staleTime: 60_000,
   });
 

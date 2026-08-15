@@ -6,6 +6,7 @@ import { timelineQuery, dailyStatsQuery, projectStatsQuery, heatmapQuery } from 
 import { todayKey, addDays, weekOf, monthGrid, addMonths, isToday, monthKey } from '../lib/time';
 import { fmtCost, fmtCount, fmtDay, fmtDayFull, fmtDuration, plural } from '../lib/format';
 import { Card, EmptyState, SegmentedControl, Skeleton, StatCard, useChartTip } from '../components/ui';
+import { useT } from '../lib/i18n';
 import { Gantt, type LaneMode } from '../components/timeline/Gantt';
 import { projectColor, claudeCellColor, legacyCellColor, CLAUDE_ALPHAS, LEGACY_HATCH } from '../lib/colors';
 import { cn } from '../lib/cn';
@@ -16,6 +17,7 @@ export default function TimelinePage() {
   const { view = 'day' } = useParams<{ view: View }>();
   const [params, setParams] = useSearchParams();
   const navigate = useNavigate();
+  const { t, locale } = useT();
   const date = params.get('date') ?? todayKey();
 
   const setDate = (d: string) => {
@@ -35,9 +37,9 @@ export default function TimelinePage() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <SegmentedControl<View>
           options={[
-            { value: 'day', label: 'Day' },
-            { value: 'week', label: 'Week' },
-            { value: 'month', label: 'Month' },
+            { value: 'day', label: t('timeline.day') },
+            { value: 'week', label: t('timeline.week') },
+            { value: 'month', label: t('timeline.month') },
           ]}
           value={view as View}
           onChange={(v) => navigate(`/timeline/${v}?date=${date}`)}
@@ -45,18 +47,18 @@ export default function TimelinePage() {
         <div className="flex items-center gap-1.5">
           <button
             onClick={() => step(-1)}
-            aria-label={`Previous ${view}`}
+            aria-label={t(view === 'day' ? 'timeline.prevDay' : view === 'week' ? 'timeline.prevWeek' : 'timeline.prevMonth')}
             className="rounded border border-line p-1.5 text-mid hover:bg-surface2 hover:text-ink"
           >
             <ChevronLeft size={14} />
           </button>
           <span className="min-w-44 text-center font-mono text-xs text-ink">
-            {view === 'month' ? new Date(date + 'T00:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) : fmtDayFull(date)}
+            {view === 'month' ? new Date(date + 'T00:00').toLocaleDateString(locale === 'fr' ? 'fr-CA' : 'en-US', { month: 'long', year: 'numeric' }) : fmtDayFull(date)}
           </span>
           <button
             onClick={() => step(1)}
             disabled={atToday}
-            aria-label={`Next ${view}`}
+            aria-label={t(view === 'day' ? 'timeline.nextDay' : view === 'week' ? 'timeline.nextWeek' : 'timeline.nextMonth')}
             className="rounded border border-line p-1.5 text-mid enabled:hover:bg-surface2 enabled:hover:text-ink disabled:opacity-30"
           >
             <ChevronRight size={14} />
@@ -65,7 +67,7 @@ export default function TimelinePage() {
             onClick={() => setDate(todayKey())}
             className="ml-1 rounded border border-line px-2.5 py-1.5 font-mono text-[11px] uppercase tracking-wider text-mid hover:bg-surface2 hover:text-ink"
           >
-            today
+            {t('timeline.today')}
           </button>
         </div>
       </div>
@@ -84,26 +86,27 @@ function DayView({ date }: { date: string }) {
   const day = useQuery(dailyStatsQuery(date, date));
   const [full24, setFull24] = useState(false);
   const [laneMode, setLaneMode] = useState<LaneMode>('project');
+  const { t, tf } = useT();
   const d = day.data?.rows[0];
 
   return (
     <>
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
-        <StatCard label="claude working" value={fmtDuration(d?.claudeMs ?? 0)} accent="claude" />
-        <StatCard label="you active" value={fmtDuration(d?.userActiveMs ?? 0)} accent="user" />
-        <StatCard label="prompts" value={fmtCount(d?.prompts ?? 0)} />
-        <StatCard label="sessions" value={fmtCount(d?.sessions ?? 0)} />
-        <StatCard label="est. cost" value={fmtCost(d?.estCostUsd ?? 0)} />
+        <StatCard label={t('timeline.claudeWorking')} value={fmtDuration(d?.claudeMs ?? 0)} accent="claude" />
+        <StatCard label={t('timeline.youActive')} value={fmtDuration(d?.userActiveMs ?? 0)} accent="user" />
+        <StatCard label={t('timeline.prompts')} value={fmtCount(d?.prompts ?? 0)} />
+        <StatCard label={t('timeline.sessions')} value={fmtCount(d?.sessions ?? 0)} />
+        <StatCard label={t('timeline.estCost')} value={fmtCost(d?.estCostUsd ?? 0)} />
       </div>
 
       <Card
-        title="session timeline"
+        title={t('timeline.sessionTimeline')}
         action={
           <div className="flex items-center gap-3">
             <SegmentedControl<LaneMode>
               options={[
-                { value: 'project', label: 'By project' },
-                { value: 'session', label: 'By session' },
+                { value: 'project', label: t('timeline.byProject') },
+                { value: 'session', label: t('timeline.bySession') },
               ]}
               value={laneMode}
               onChange={setLaneMode}
@@ -112,7 +115,7 @@ function DayView({ date }: { date: string }) {
               onClick={() => setFull24((v) => !v)}
               className="font-mono text-[11px] uppercase tracking-wider text-dim hover:text-claude"
             >
-              {full24 ? 'fit activity' : 'full 24h'}
+              {full24 ? t('timeline.fitActivity') : t('timeline.full24h')}
             </button>
           </div>
         }
@@ -121,10 +124,10 @@ function DayView({ date }: { date: string }) {
         {tl.isLoading && <Skeleton className="h-64" />}
         {tl.data && tl.data.sessions.length === 0 && (
           <EmptyState
-            title={`No activity on ${fmtDay(date)}`}
+            title={tf('timeline.noActivityOn', { date: fmtDay(date) })}
             hint={
               tl.data.legacy
-                ? `Legacy day — ${fmtCount(tl.data.legacy.message_count ?? 0)} messages recorded before transcript history begins (Jun 25, 2026); no timeline detail is available.`
+                ? tf('timeline.legacyDayHint', { count: fmtCount(tl.data.legacy.message_count ?? 0) })
                 : undefined
             }
           />
@@ -142,6 +145,7 @@ function WeekView({ date }: { date: string }) {
   const totals = useQuery(dailyStatsQuery(days[0], days[6]));
   const perDay = useQueries({ queries: days.map((d) => projectStatsQuery(d, d)) });
   const navigate = useNavigate();
+  const { t } = useT();
   const { hostRef, show, hide, tipEl } = useChartTip();
 
   const { legend, stacks, max } = useMemo(() => {
@@ -171,13 +175,13 @@ function WeekView({ date }: { date: string }) {
 
   return (
     <Card
-      title="claude time by project"
+      title={t('timeline.claudeTimeByProject')}
       action={
         <Link
           to={`/digest?date=${date}`}
           className="font-mono text-[11px] uppercase tracking-wider text-dim hover:text-claude"
         >
-          digest →
+          {t('timeline.digestLink')}
         </Link>
       }
       bodyClassName="p-4"
@@ -239,10 +243,10 @@ function WeekView({ date }: { date: string }) {
         ))}
         {totals.data && (
           <span className="ml-auto font-mono text-[12px] text-dim">
-            week total{' '}
-            <span className="text-claude">{fmtDuration(totals.data.rows.reduce((t, r) => t + r.claudeMs, 0))}</span>
+            {t('timeline.weekTotal')}{' '}
+            <span className="text-claude">{fmtDuration(totals.data.rows.reduce((sum, r) => sum + r.claudeMs, 0))}</span>
             {' · '}
-            <span className="text-user">{fmtDuration(totals.data.rows.reduce((t, r) => t + r.userActiveMs, 0))} you</span>
+            <span className="text-user">{fmtDuration(totals.data.rows.reduce((sum, r) => sum + r.userActiveMs, 0))} {t('timeline.you')}</span>
           </span>
         )}
       </div>
@@ -258,14 +262,15 @@ function MonthView({ date }: { date: string }) {
   const { days } = monthGrid(date);
   const byDate = useMemo(() => new Map((heat.data?.days ?? []).map((d) => [d.date, d])), [heat.data]);
   const mk = monthKey(date);
+  const { t } = useT();
   const { hostRef, show, hide, tipEl } = useChartTip();
 
   return (
-    <Card title="month" bodyClassName="p-4">
+    <Card title={t('timeline.monthTitle')} bodyClassName="p-4">
       <div ref={hostRef} className="relative">
         <div className="grid grid-cols-7 gap-1.5">
-          {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((d) => (
-            <div key={d} className="microlabel pb-1 text-center">{d}</div>
+          {(['timeline.wdMon', 'timeline.wdTue', 'timeline.wdWed', 'timeline.wdThu', 'timeline.wdFri', 'timeline.wdSat', 'timeline.wdSun'] as const).map((k) => (
+            <div key={k} className="microlabel pb-1 text-center">{t(k)}</div>
           ))}
           {days.map((day) => {
             const d = byDate.get(day);
@@ -289,7 +294,7 @@ function MonthView({ date }: { date: string }) {
                       {d && (
                         <div className="mt-0.5 text-dim">
                           {legacy ? (
-                            <>legacy · {plural(d.messages ?? 0, 'message')} (no durations before Jun 25, 2026)</>
+                            <>{t('timeline.legacy')} · {plural(d.messages ?? 0, 'message')} {t('timeline.noDurationsBefore')}</>
                           ) : (
                             <>
                               <span className="text-claude">{fmtDuration(d.claudeMs)}</span> claude · {plural(d.prompts, 'prompt')}
@@ -318,13 +323,13 @@ function MonthView({ date }: { date: string }) {
         {tipEl}
       </div>
       <div className="mt-3 flex items-center gap-2 border-t border-line pt-2.5 font-mono text-[11px] uppercase tracking-wider text-dim">
-        less
+        {t('timeline.less')}
         {CLAUDE_ALPHAS.map((a) => (
           <span key={a} className="h-3 w-3 rounded-sm border border-line" style={{ background: `rgba(var(--claude-rgb),${a})` }} />
         ))}
-        more
+        {t('timeline.more')}
         <span className="ml-4 h-3 w-3 rounded-sm border border-line" style={{ backgroundImage: LEGACY_HATCH }} />
-        pre-transcript era (counts only)
+        {t('timeline.preTranscriptEra')}
       </div>
     </Card>
   );

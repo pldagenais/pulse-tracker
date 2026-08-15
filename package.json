@@ -16,14 +16,20 @@
     "check": "tsc -p jsconfig.json"
   },
   "dependencies": {
+    "@auth/core": "^0.41.3",
+    "@convex-dev/auth": "^0.0.95",
     "chokidar": "^4.0.0",
+    "convex": "^1.44.0",
     "express": "^5.0.0",
     "pdfkit": "^0.19.1"
   },
   "devDependencies": {
+    "@edge-runtime/vm": "^5.0.0",
     "@types/express": "^5.0.0",
     "@types/node": "^24.0.0",
     "concurrently": "^9.0.0",
-    "typescript": "~5.9.0"
+    "convex-test": "^0.0.55",
+    "typescript": "~5.9.0",
+    "vitest": "^4.1.10"
   }
 }

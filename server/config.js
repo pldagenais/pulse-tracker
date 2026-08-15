@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -17,6 +18,27 @@ export const HOST = '127.0.0.1';
 export const PORT = Number(process.env.CLAUDE_TRACKER_PORT || 5599);
 export const APP_NAME = 'claude-time-tracker';
 export const APP_VERSION = '1.0.0';
+
+// Cloud mirror (opt-in). Absent config disables sync entirely, so the local
+// app behaves exactly as it always has.
+//
+// Settings come from the environment, falling back to data/cloud.json — the
+// scheduled task that runs Pulse 24/7 does not inherit a shell environment,
+// and the file is git-ignored along with everything else in data/.
+// (Read inline rather than via lib/config-file.js, which imports this file.)
+function cloudConfig() {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(DATA_DIR, 'cloud.json'), 'utf8'));
+  } catch {
+    return {};
+  }
+}
+const cloud = cloudConfig();
+
+export const CLOUD_URL = process.env.PULSE_CONVEX_URL || cloud.convexUrl || '';
+export const CLOUD_KEY = process.env.PULSE_AGENT_KEY || cloud.agentKey || '';
+export const CLOUD_SYNC_DAYS = Number(process.env.PULSE_SYNC_DAYS || cloud.syncDays || 90);
+export const CLOUD_ENABLED = !!(CLOUD_URL && CLOUD_KEY);
 
 // Timing-model defaults (minutes; overridable via settings table)
 export const DEFAULT_IDLE_THRESHOLD_MIN = 10;
