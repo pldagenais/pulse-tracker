@@ -307,9 +307,15 @@ git commit -am "fix(cloud): expire live state when the PC stops reporting"
 
 ---
 
-## Batch 3 — Day keys, day boundaries and prices
+## Batch 3 — Day keys, day boundaries and prices ✅ SHIPPED 2026-08-15
 
 Every task here is "the number is attributed to the wrong day, or shown without the caveat that makes it true". Depends on Task 1 (same `rangeDaily` loop).
+
+**Shipped as `c7b36f5`.** Notes from execution:
+
+- **Task 9 gained a `TzGate`:** `todayKey()` is called during render, so the agent zone cannot be retrofitted after queries fire — a gate component fetches the heartbeat once between sign-in and the first render, and the 15s live poll keeps it fresh. Only `dayKeyOf`/`todayKey` are zone-sensitive; the rest of `time.ts` is pure string math.
+- **Task 10 verified by conservation:** over full history (392 turns, 12 crossing midnight), `rangeDaily` totals match raw table sums to 1ms / 1 cent of rounding, tokens exact; a real 10.7h crossing turn now credits 17.5% to its second day. Sessions count on every day they touch; turn counts stay on the start day (counts can't be fractional). The Digest week header uses the distinct count locally only — cloud's `sessions:list` caps `total` at the page size, so it keeps the sum there.
+- **Task 11 verified both directions** by flipping one session's `has_unpriced_tokens` in the derived cache and watching the day flag follow, then restoring. The day flag is session-granularity: any unpriced session touching a day marks that day partial.
 
 ### Task 9: Derive cloud day keys from the agent's timezone
 
