@@ -1815,3 +1815,31 @@ git push
 **Type consistency:** `putSnapshots`/`putSessions`/`putPrompts`/`putJournal`/`heartbeat` (Task 4) match the calls in `sync.js` (Task 7); `claimNext`/`update` (Task 9) match the poller (Task 10); the `fn` strings in `resolveRemote` (Task 11) match the `FN` lookup table (Task 12) and the query names defined in Task 5.
 
 **Known risk carried forward:** Task 8's verification script reads through `snapshots.get`, which requires a user identity. If Convex refuses the script's unauthenticated call, use the documented `npx convex run` fallback in that step rather than weakening the auth guard.
+
+---
+
+## Execution record (2026-08-14)
+
+All 14 tasks executed. Deviations from the plan, and why:
+
+- **@auth/core version** — the plan pinned 0.37.0; `@convex-dev/auth@0.0.95` requires `^0.41.1`. Installed 0.41.3.
+- **`/api/stats` paths** — the plan invented `/api/stats/models` etc. Stats is a single
+  endpoint taking `groupBy` plus a date range. Task 6's "verify every path returns 200"
+  step caught this before any of it shipped; cloud now mirrors a canonical 90-day window
+  per grouping and `resolveRemote` drops the range.
+- **`anyApi` instead of the generated api** — importing `convex/_generated/api.js` from
+  server code pulled Convex's TypeScript sources into the root nodenext typecheck.
+- **Auth tables** — `...authTables` was missing from the schema; `@convex-dev/auth`
+  requires them.
+- **Config source** — the plan assumed environment variables. The Windows scheduled task
+  inherits no shell environment, so settings fall back to git-ignored `data/cloud.json`.
+- **Added, not planned: `server/lib/cloud/redact.js`** — credential-shaped strings are
+  stripped from prompt text before mirroring, after a real OAuth secret was pasted into a
+  session. Verified: present in the local DB, absent from the cloud mirror.
+- **Vercel** points at the Convex **dev** deployment. Production was deliberately not
+  created; it is a separate database and needs a new OAuth callback URL.
+
+Verified end to end: mirror (177 snapshots / 40 sessions / 300 prompts), GitHub OAuth
+redirect with correct client id, PKCE and callback, local mode unchanged, and a job
+queued in Convex claimed by the local agent and executed (exit 0, "PONG", 13.5s,
+ingested as a normal session).
