@@ -1890,7 +1890,13 @@ project detail (calendar populated), sessions, prompts, insights, journal, statu
 mission, run, and report all render real data with **zero console errors**. The live
 pill reads "3 working · 2 cloud".
 
-**Note for future work:** a stale service worker served the old bundle after deploying,
-which made a fixed page look broken. When verifying a deploy, check the served bundle
-hash or use a fresh tab — the app's own `vite:preloadError` reload handles this for
-users, but not for a tab that is already open.
+**Note for future work:** an already-open tab kept serving the old bundle after deploying,
+which made a fixed page look broken. When verifying a deploy, check the served bundle hash
+or use a fresh tab.
+
+*(Corrected 2026-08-15: this was originally attributed to a stale service worker. That is
+wrong — `web/public/sw.js` caches no assets at all, intercepting only `mode === 'navigate'`
+to serve an offline fallback. The old bundle persisted because an open tab keeps its loaded
+modules and its cached `index.html`; `vite:preloadError` only fires when a lazy chunk 404s,
+which never happens if the user does not navigate to a new route. Giving open tabs a real
+update path is Task 18 of `2026-08-15-improvement-backlog-25.md`.)*
