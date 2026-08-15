@@ -10,7 +10,14 @@ import { anyApi as api } from 'convex/server';
 import { CLOUD_URL, CLOUD_KEY, CLOUD_SYNC_DAYS } from '../../config.js';
 import { getMeta, setMeta } from '../db.js';
 import { todayKey, addDays, safeJsonParse } from '../util.js';
-import { hashPayload, staticSnapshots, daySnapshots, projectSnapshots } from './keys.js';
+import {
+  hashPayload,
+  staticSnapshots,
+  daySnapshots,
+  projectSnapshots,
+  calendarSnapshots,
+  reportSnapshots,
+} from './keys.js';
 import { redactSecrets } from './redact.js';
 import { createQueuePoller } from './jobs.js';
 import { log } from '../logger.js';
@@ -46,6 +53,8 @@ export function createCloudSync(db, { port, appVersion, jobs }) {
     const specs = /** @type {{key: string, kind: string, day?: string, path: string}[]} */ ([
       ...staticSnapshots(todayKey(), addDays),
       ...projectSnapshots(projects),
+      ...calendarSnapshots(projects, todayKey().slice(0, 7)),
+      ...reportSnapshots(projects),
       ...daySnapshots(CLOUD_SYNC_DAYS, todayKey(), addDays),
     ]);
     let batch = [];

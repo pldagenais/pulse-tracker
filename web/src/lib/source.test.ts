@@ -56,6 +56,13 @@ describe('resolveRemote', () => {
     });
   });
 
+  it('maps the project calendar to a month-keyed snapshot', () => {
+    expect(resolveRemote('/api/projects/9/calendar?month=2026-08')).toEqual({
+      fn: 'snapshots:get',
+      args: { key: 'calendar:9:2026-08' },
+    });
+  });
+
   it('maps the live list to its mirrored snapshot', () => {
     expect(resolveRemote('/api/live')).toEqual({
       fn: 'snapshots:get',
@@ -68,7 +75,12 @@ describe('resolveRemote', () => {
     expect(resolveRemote('/api/memory')).toBeNull();
     expect(resolveRemote('/api/routines')).toBeNull();
     expect(resolveRemote('/api/projects/9/open')).toBeNull();
-    // reports are produced by the local CLI and never mirrored
-    expect(resolveRemote('/api/report/3')).toBeNull();
+  });
+
+  it('normalises the report range away to the all-time mirror', () => {
+    expect(resolveRemote('/api/report/3?from=2026-07-01&to=2026-08-14')).toEqual({
+      fn: 'snapshots:get',
+      args: { key: 'report:3' },
+    });
   });
 });

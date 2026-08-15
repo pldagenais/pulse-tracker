@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { queryOptions } from '@tanstack/react-query';
 import { FileDown, Sparkles, RefreshCw } from 'lucide-react';
 import { api, qs } from '../lib/api';
+import { MODE } from '../lib/source';
 import { projectsQuery } from '../lib/queries';
 import type { PrLink } from '../lib/types';
 import { todayKey, addDays } from '../lib/time';
@@ -122,13 +123,16 @@ export default function ReportPage() {
             {summarize.isPending ? <RefreshCw size={12} className="animate-spin" /> : <Sparkles size={12} />}
             {summarize.isPending ? 'summarizing…' : d?.summary && !d.summary.stale ? 'refresh summary' : d?.summary?.stale ? 'update summary' : 'AI summary'}
           </button>
-          <a
-            href={pdfHref}
-            className="flex items-center gap-1.5 rounded-md border border-line px-3 py-2 font-mono text-[12px] uppercase tracking-wider text-mid hover:bg-surface2 hover:text-ink"
-            title="Export as PDF"
-          >
-            <FileDown size={12} /> pdf
-          </a>
+          {/* the PDF is rendered by the local server, so the link only exists there */}
+          {MODE === 'local' && (
+            <a
+              href={pdfHref}
+              className="flex items-center gap-1.5 rounded-md border border-line px-3 py-2 font-mono text-[12px] uppercase tracking-wider text-mid hover:bg-surface2 hover:text-ink"
+              title="Export as PDF"
+            >
+              <FileDown size={12} /> pdf
+            </a>
+          )}
         </div>
       </div>
       {summarize.isPending && (

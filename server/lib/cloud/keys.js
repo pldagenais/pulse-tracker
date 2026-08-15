@@ -65,6 +65,36 @@ export function projectSnapshots(projects) {
 }
 
 /**
+ * Per-project reports, all-time — the range the report page opens to. Like
+ * /api/stats the cloud holds one canonical range rather than every range the
+ * user might pick. Payloads are a few KB each.
+ * @param {{id: number}[]} projects
+ * @returns {{key: string, kind: string, path: string}[]}
+ */
+export function reportSnapshots(projects) {
+  return (projects ?? []).map((p) => ({
+    key: `report:${p.id}`,
+    kind: 'report',
+    path: `/api/report/${p.id}`,
+  }));
+}
+
+/**
+ * The activity calendar each project page opens to. Only the month currently
+ * being viewed is mirrored — paging further back is a local-only detail.
+ * @param {{id: number}[]} projects
+ * @param {string} month YYYY-MM
+ * @returns {{key: string, kind: string, path: string}[]}
+ */
+export function calendarSnapshots(projects, month) {
+  return (projects ?? []).map((p) => ({
+    key: `calendar:${p.id}:${month}`,
+    kind: 'calendar',
+    path: `/api/projects/${p.id}/calendar?month=${month}`,
+  }));
+}
+
+/**
  * Day-keyed mirrors across a rolling window, newest first.
  * @param {number} days
  * @param {string} todayKey
