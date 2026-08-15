@@ -3,13 +3,17 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeftRight, ExternalLink, Star } from 'lucide-react';
 import { Link } from 'react-router';
 import type { SessionDetail, SessionTurn } from '../../lib/types';
-import { Badge, Card, SkeletonRows } from '../ui';
+import { Badge, Card, SkeletonRows, WriteError, useWriteAction } from '../ui';
 import { fmtClock, fmtCost, fmtDay, fmtDuration, fmtModel, fmtTokens, fmtCount, plural } from '../../lib/format';
 import { projectColor, CLAUDE_COLOR, USER_COLOR, SUBAGENT_COLOR, BAR_MUTED } from '../../lib/colors';
 import { replayQuery } from '../../lib/queries';
 import { ContinueBox, ResumeButton } from '../actions';
 import { api } from '../../lib/api';
+import { MODE } from '../../lib/source';
 import { cn } from '../../lib/cn';
+
+/** Writes that need the local machine are disabled rather than left to fail. */
+const LOCAL = MODE === 'local';
 
 export function SessionDetailView({ detail, highlightPrompt }: { detail: SessionDetail; highlightPrompt?: string | null }) {
   const { session: s, turns, prompts, agents, toolBreakdown, skills, efforts, commits, prStates } = detail;
@@ -22,11 +26,11 @@ export function SessionDetailView({ detail, highlightPrompt }: { detail: Session
   const maxTime = Math.max(s.claudeMs, s.userActiveMs, s.subagentMs, 1);
 
   const queryClient = useQueryClient();
-  const toggleStar = async () => {
+  const star = useWriteAction(async () => {
     if (s.starred) await api.del(`/api/sessions/${s.id}/star`);
     else await api.post(`/api/sessions/${s.id}/star`);
     queryClient.invalidateQueries();
-  };
+  });
 
   const [showReplay, setShowReplay] = useState(false);
   const replay = useQuery(replayQuery(s.id, showReplay));
@@ -62,16 +66,21 @@ export function SessionDetailView({ detail, highlightPrompt }: { detail: Session
           <h2 className="font-display text-lg font-medium leading-6 text-ink">
             {s.title ?? s.lastPrompt ?? s.firstPrompt ?? 'Untitled session'}
           </h2>
-          <button
-            onClick={toggleStar}
-            aria-label={s.starred ? 'Unstar session' : 'Star session'}
-            className={cn('shrink-0 rounded p-1', s.starred ? 'text-user' : 'text-dim hover:text-user')}
-          >
-            <Star
-              size={15}
-              style={{ fill: s.starred ? USER_COLOR : 'none', stroke: s.starred ? USER_COLOR : 'currentColor' }}
-            />
-          </button>
+          <span className="flex shrink-0 items-center gap-1.5">
+            <WriteError error={star.error} />
+            <button
+              onClick={() => star.run()}
+              disabled={star.pending || !LOCAL}
+              title={LOCAL ? undefined : 'Starring needs your PC'}
+              aria-label={s.starred ? 'Unstar session' : 'Star session'}
+              className={cn('rounded p-1 disabled:opacity-40', s.starred ? 'text-user' : 'text-dim hover:text-user')}
+            >
+              <Star
+                size={15}
+                style={{ fill: s.starred ? USER_COLOR : 'none', stroke: s.starred ? USER_COLOR : 'currentColor' }}
+              />
+            </button>
+          </span>
         </div>
         <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[12px] text-dim">
           {s.startedAt && (
@@ -345,18 +354,28 @@ function TagsAndNote({ sessionId, tags: initialTags, note: initialNote }: { sess
   /**
    * Adopts the server's echo rather than trusting the optimistic value, so a
    * tag the server normalises or drops stops rendering as if it were accepted.
+   * On failure the optimistic value is rolled back to what was last persisted.
    */
-  const save = async (nextTags: string[], nextNote: string) => {
-    const saved = await api.put<{ tags: string[]; note: string | null }>(
-      `/api/sessions/${sessionId}/meta`,
-      { tags: nextTags, note: nextNote }
-    );
-    if (saved) {
-      setTags(saved.tags ?? nextTags);
-      setNote(saved.note ?? '');
+  const write = useWriteAction(async (nextTags: string[], nextNote: string) => {
+    const prevTags = tags;
+    const prevNote = note;
+    try {
+      const saved = await api.put<{ tags: string[]; note: string | null }>(
+        `/api/sessions/${sessionId}/meta`,
+        { tags: nextTags, note: nextNote }
+      );
+      if (saved) {
+        setTags(saved.tags ?? nextTags);
+        setNote(saved.note ?? '');
+      }
+      queryClient.invalidateQueries({ queryKey: ['session'] });
+    } catch (e) {
+      setTags(prevTags);
+      setNote(prevNote);
+      throw e;
     }
-    queryClient.invalidateQueries({ queryKey: ['session'] });
-  };
+  });
+  const save = (nextTags: string[], nextNote: string) => void write.run(nextTags, nextNote);
   const addTag = (t: string) => {
     const next = [...new Set([...tags, t.toLowerCase().trim()])].filter(Boolean);
     setTags(next);
@@ -413,12 +432,14 @@ function TagsAndNote({ sessionId, tags: initialTags, note: initialNote }: { sess
         </select>
         <button
           onClick={suggest}
-          disabled={suggesting}
+          disabled={suggesting || !LOCAL}
+          title={LOCAL ? undefined : 'AI suggestions need your PC'}
           className="rounded border border-line px-2 py-0.5 font-mono text-[11px] uppercase tracking-wider text-mid hover:text-claude disabled:opacity-50"
         >
           {suggesting ? 'thinking…' : 'ai suggest'}
         </button>
         {err && <span className="font-mono text-[11px] text-dim">{err}</span>}
+        <WriteError error={write.error} />
       </div>
       <textarea
         value={note}

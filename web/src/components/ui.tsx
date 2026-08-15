@@ -1,5 +1,47 @@
-import { useRef, useState, type ReactNode } from 'react';
+import { useCallback, useRef, useState, type ReactNode } from 'react';
 import { cn } from '../lib/cn';
+
+/**
+ * Runs a write and keeps its failure. An `async` function passed straight to
+ * onClick reports nothing when it rejects — the click just does nothing, and
+ * in cloud mode every local-only write rejects that way — so the UI would
+ * happily show an optimistic result that was never persisted.
+ *
+ * Returns `run` (never rejects), plus `pending` and `error` to render.
+ */
+export function useWriteAction<A extends unknown[]>(fn: (...args: A) => Promise<unknown>) {
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  // keep the latest fn without making `run` a new identity every render
+  const fnRef = useRef(fn);
+  fnRef.current = fn;
+
+  const run = useCallback(async (...args: A) => {
+    setPending(true);
+    setError(null);
+    try {
+      await fnRef.current(...args);
+      return true;
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      return false;
+    } finally {
+      setPending(false);
+    }
+  }, []);
+
+  return { run, pending, error, clearError: () => setError(null) };
+}
+
+/** Inline failure text for a write that did not land. */
+export function WriteError({ error }: { error: string | null }) {
+  if (!error) return null;
+  return (
+    <span role="alert" className="font-mono text-[11px] text-danger" title={error}>
+      {error.length > 60 ? `${error.slice(0, 60)}…` : error}
+    </span>
+  );
+}
 
 export function Card({
   title, action, children, className, bodyClassName,

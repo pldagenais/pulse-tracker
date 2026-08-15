@@ -5,7 +5,12 @@ import { statusQuery, settingsQuery, parseFailuresQuery, webhooksQuery } from '.
 import { api, qs } from '../lib/api';
 import { useLive } from '../lib/live';
 import { fmtBytes, fmtCount, fmtDuration, fmtRelative, plural } from '../lib/format';
-import { Card, Skeleton } from '../components/ui';
+import { Card, Skeleton, WriteError, useWriteAction } from '../components/ui';
+import type { Webhook } from '../lib/types';
+import { MODE } from '../lib/source';
+
+/** Writes that need the local machine are disabled rather than left to fail. */
+const LOCAL = MODE === 'local';
 import { cn } from '../lib/cn';
 
 export default function StatusPage() {
@@ -279,28 +284,7 @@ function WebhooksCard() {
   return (
     <Card title="outbound webhooks" bodyClassName="p-0">
       {(q.data ?? []).map((w) => (
-        <div key={w.id} className="flex items-center gap-3 border-b border-line/60 px-4 py-2">
-          <button
-            onClick={async () => { await api.put(`/api/webhooks/${w.id}`, { enabled: !w.enabled }); refresh(); }}
-            role="switch"
-            aria-checked={w.enabled}
-            aria-label="Toggle webhook"
-            className={cn('relative h-4 w-8 shrink-0 rounded-full border', w.enabled ? 'border-claude/60 bg-claude/30' : 'border-line2 bg-raise')}
-          >
-            <span className={cn('absolute top-0.5 h-2.5 w-2.5 rounded-full transition-all', w.enabled ? 'left-[18px] bg-claude' : 'left-0.5 bg-dim')} />
-          </button>
-          <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-ink">{w.url}</span>
-          <span className="shrink-0 font-mono text-[11px] text-dim">
-            {w.lastFiredAt ? `${w.lastStatus ?? ''} · ${fmtRelative(w.lastFiredAt)}` : 'never fired'}
-          </span>
-          <button
-            onClick={async () => { if (window.confirm('Delete this webhook?')) { await api.del(`/api/webhooks/${w.id}`); refresh(); } }}
-            aria-label="Delete webhook"
-            className="shrink-0 rounded border border-line px-1.5 py-0.5 font-mono text-[11px] text-dim hover:border-danger/50 hover:text-danger"
-          >
-            ×
-          </button>
-        </div>
+        <WebhookRow key={w.id} w={w} refresh={refresh} />
       ))}
       <div className="flex flex-wrap items-center gap-2 px-4 py-3">
         <input
@@ -311,7 +295,8 @@ function WebhooksCard() {
         />
         <button
           onClick={add}
-          disabled={!url.trim()}
+          disabled={!url.trim() || !LOCAL}
+          title={LOCAL ? undefined : 'Webhooks need your PC'}
           className="rounded-md border border-claude/50 bg-claude/10 px-3 py-1.5 font-mono text-[11px] uppercase tracking-wider text-claude hover:bg-claude/20 disabled:opacity-40"
         >
           add
@@ -319,6 +304,47 @@ function WebhooksCard() {
         {err && <span className="w-full font-mono text-[11px] text-danger">{err}</span>}
       </div>
     </Card>
+  );
+}
+
+function WebhookRow({ w, refresh }: { w: Webhook; refresh: () => void }) {
+  const toggle = useWriteAction(async () => {
+    await api.put(`/api/webhooks/${w.id}`, { enabled: !w.enabled });
+    refresh();
+  });
+  const del = useWriteAction(async () => {
+    if (!window.confirm('Delete this webhook?')) return;
+    await api.del(`/api/webhooks/${w.id}`);
+    refresh();
+  });
+  return (
+    <div className="flex items-center gap-3 border-b border-line/60 px-4 py-2">
+      <button
+        onClick={() => toggle.run()}
+        disabled={toggle.pending || !LOCAL}
+        title={LOCAL ? undefined : 'Webhooks need your PC'}
+        role="switch"
+        aria-checked={w.enabled}
+        aria-label="Toggle webhook"
+        className={cn('relative h-4 w-8 shrink-0 rounded-full border disabled:opacity-40', w.enabled ? 'border-claude/60 bg-claude/30' : 'border-line2 bg-raise')}
+      >
+        <span className={cn('absolute top-0.5 h-2.5 w-2.5 rounded-full transition-all', w.enabled ? 'left-[18px] bg-claude' : 'left-0.5 bg-dim')} />
+      </button>
+      <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-ink">{w.url}</span>
+      <WriteError error={toggle.error ?? del.error} />
+      <span className="shrink-0 font-mono text-[11px] text-dim">
+        {w.lastFiredAt ? `${w.lastStatus ?? ''} · ${fmtRelative(w.lastFiredAt)}` : 'never fired'}
+      </span>
+      <button
+        onClick={() => del.run()}
+        disabled={del.pending || !LOCAL}
+        title={LOCAL ? undefined : 'Webhooks need your PC'}
+        aria-label="Delete webhook"
+        className="shrink-0 rounded border border-line px-1.5 py-0.5 font-mono text-[11px] text-dim hover:border-danger/50 hover:text-danger disabled:opacity-40"
+      >
+        ×
+      </button>
+    </div>
   );
 }
 

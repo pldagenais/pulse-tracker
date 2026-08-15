@@ -6,7 +6,11 @@ import { api } from '../lib/api';
 import { jobsQuery, templatesQuery, projectsQuery, schedulesQuery } from '../lib/queries';
 import type { Project, PromptTemplate, PulseJob, ScheduledJob } from '../lib/types';
 import { fmtClock, fmtDuration, fmtRelative, plural } from '../lib/format';
-import { Badge, Card, EmptyState } from '../components/ui';
+import { Badge, Card, EmptyState, WriteError, useWriteAction } from '../components/ui';
+import { MODE } from '../lib/source';
+
+/** Writes that need the local machine are disabled rather than left to fail. */
+const LOCAL = MODE === 'local';
 import { cn } from '../lib/cn';
 
 const DOWS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -337,15 +341,15 @@ function SchedulesCard({
 
 function ScheduleRow({ s, roots, onChange }: { s: ScheduledJob; roots: Project[]; onChange: () => void }) {
   const projectName = roots.find((p) => p.path === s.projectPath)?.name ?? s.projectPath.split(/[\\/]/).pop();
-  const toggle = async () => {
+  const toggle = useWriteAction(async () => {
     await api.put(`/api/schedules/${s.id}`, { enabled: !s.enabled });
     onChange();
-  };
-  const del = async () => {
+  });
+  const del = useWriteAction(async () => {
     if (!window.confirm(`Delete schedule "${s.name}"?`)) return;
     await api.del(`/api/schedules/${s.id}`);
     onChange();
-  };
+  });
   const runNow = async () => {
     try {
       await api.post(`/api/schedules/${s.id}/run`, {});
@@ -358,7 +362,9 @@ function ScheduleRow({ s, roots, onChange }: { s: ScheduledJob; roots: Project[]
   return (
     <div className="flex items-center gap-3 border-b border-line/60 px-4 py-2.5 last:border-0">
       <button
-        onClick={toggle}
+        onClick={() => toggle.run()}
+        disabled={toggle.pending || !LOCAL}
+        title={LOCAL ? undefined : 'Schedules need your PC'}
         role="switch"
         aria-checked={s.enabled}
         aria-label={`Toggle ${s.name}`}
@@ -382,10 +388,11 @@ function ScheduleRow({ s, roots, onChange }: { s: ScheduledJob; roots: Project[]
           {failing && ` · ${s.consecutiveFailures} consecutive failure${s.consecutiveFailures === 1 ? '' : 's'}${!s.enabled ? ' — auto-disabled' : ''}`}
         </div>
       </div>
-      <button onClick={runNow} aria-label="Run now" title="Run now" className="shrink-0 rounded border border-line p-1 text-dim hover:text-claude">
+      <WriteError error={toggle.error ?? del.error} />
+      <button onClick={runNow} disabled={!LOCAL} title={LOCAL ? 'Run now' : 'Running a schedule needs your PC'} aria-label="Run now" className="shrink-0 rounded border border-line p-1 text-dim hover:text-claude disabled:opacity-40">
         <Play size={11} />
       </button>
-      <button onClick={del} aria-label="Delete schedule" className="shrink-0 rounded border border-line p-1 text-dim hover:border-danger/50 hover:text-danger">
+      <button onClick={() => del.run()} disabled={del.pending || !LOCAL} title={LOCAL ? undefined : 'Deleting a schedule needs your PC'} aria-label="Delete schedule" className="shrink-0 rounded border border-line p-1 text-dim hover:border-danger/50 hover:text-danger disabled:opacity-40">
         <Trash2 size={11} />
       </button>
     </div>
@@ -394,17 +401,15 @@ function ScheduleRow({ s, roots, onChange }: { s: ScheduledJob; roots: Project[]
 
 function TemplateRow({ t, onApply }: { t: PromptTemplate; onApply: () => void }) {
   const queryClient = useQueryClient();
-  const del = async (e: React.MouseEvent) => {
-    e.stopPropagation();
+  const del = useWriteAction(async () => {
     if (!window.confirm(`Delete template "${t.name}"?`)) return;
     await api.del(`/api/templates/${t.id}`);
     queryClient.invalidateQueries({ queryKey: ['templates'] });
-  };
-  const togglePin = async (e: React.MouseEvent) => {
-    e.stopPropagation();
+  });
+  const togglePin = useWriteAction(async () => {
     await api.put(`/api/templates/${t.id}`, { ...t, pinned: !t.pinned });
     queryClient.invalidateQueries({ queryKey: ['templates'] });
-  };
+  });
   return (
     <div
       role="button"
@@ -423,12 +428,18 @@ function TemplateRow({ t, onApply }: { t: PromptTemplate; onApply: () => void })
           {t.runCount > 0 ? `${plural(t.runCount, 'run')}${t.lastRunAt ? ` · last ${fmtRelative(t.lastRunAt)}` : ''}` : 'never run'}
         </div>
       </div>
-      <span className="hidden shrink-0 items-center gap-1 group-hover:flex">
-        <button onClick={togglePin} aria-label={t.pinned ? 'Unpin' : 'Pin'} title={t.pinned ? 'Unpin' : 'Pin (shows on project pages)'}
-          className="rounded border border-line p-1 text-dim hover:text-user">
+      {/* opacity, never display:none — a hidden control is unreachable by
+          keyboard; focus-within reveals both buttons when either is tabbed to */}
+      <span className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+        <WriteError error={togglePin.error ?? del.error} />
+        <button onClick={(e) => { e.stopPropagation(); void togglePin.run(); }} disabled={togglePin.pending || !LOCAL}
+          aria-label={t.pinned ? 'Unpin' : 'Pin'} title={LOCAL ? (t.pinned ? 'Unpin' : 'Pin (shows on project pages)') : 'Templates need your PC'}
+          className="rounded border border-line p-1 text-dim hover:text-user disabled:opacity-40">
           <Pin size={10} />
         </button>
-        <button onClick={del} aria-label="Delete template" className="rounded border border-line p-1 text-dim hover:border-danger/50 hover:text-danger">
+        <button onClick={(e) => { e.stopPropagation(); void del.run(); }} disabled={del.pending || !LOCAL}
+          title={LOCAL ? undefined : 'Templates need your PC'}
+          aria-label="Delete template" className="rounded border border-line p-1 text-dim hover:border-danger/50 hover:text-danger disabled:opacity-40">
           <Trash2 size={10} />
         </button>
       </span>
@@ -439,10 +450,11 @@ function TemplateRow({ t, onApply }: { t: PromptTemplate; onApply: () => void })
 function JobRow({ j }: { j: PulseJob }) {
   const [open, setOpen] = useState(j.status === 'running');
   const queryClient = useQueryClient();
-  const kill = async () => {
+  // not gated on LOCAL: remotely this queues a kill the local agent executes
+  const kill = useWriteAction(async () => {
     await api.post(`/api/jobs/${j.id}/kill`, {});
     queryClient.invalidateQueries({ queryKey: ['jobs'] });
-  };
+  });
   const tone = j.status === 'running' ? 'text-claude' : j.status === 'done' ? 'text-ok' : j.status === 'killed' ? 'text-dim' : 'text-danger';
   return (
     <div className="px-4 py-2.5">
@@ -453,16 +465,17 @@ function JobRow({ j }: { j: PulseJob }) {
         <span className={cn('shrink-0 font-mono text-[11px] uppercase tracking-wider', tone)}>
           {j.status === 'running' ? <span className="flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-claude pulse-dot" />running</span> : j.status}
         </span>
-        <span className="min-w-0 flex-1 truncate text-xs text-ink">{j.prompt.replace(/\s+/g, ' ')}</span>
+        <span className="min-w-0 flex-1 truncate text-xs text-ink">{(j.prompt ?? '').replace(/\s+/g, ' ')}</span>
         {j.resumeOf && <Badge>resume</Badge>}
         {j.model && <Badge>{j.model.replace('claude-', '')}</Badge>}
         <span className="shrink-0 font-mono text-[11px] text-dim">
           {fmtClock(j.createdAt)}
           {j.endedAt && j.startedAt ? ` · ${fmtDuration(j.endedAt - j.startedAt)}` : ''}
         </span>
+        <WriteError error={kill.error} />
         {j.status === 'running' && (
-          <button onClick={kill} aria-label="Kill job" title="Kill this run"
-            className="shrink-0 rounded border border-line p-1 text-dim hover:border-danger/50 hover:text-danger">
+          <button onClick={() => kill.run()} disabled={kill.pending} aria-label="Kill job" title="Kill this run"
+            className="shrink-0 rounded border border-line p-1 text-dim hover:border-danger/50 hover:text-danger disabled:opacity-40">
             <Square size={9} fill="currentColor" />
           </button>
         )}
