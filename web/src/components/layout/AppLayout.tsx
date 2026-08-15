@@ -13,7 +13,7 @@ import { CommandPalette } from './CommandPalette';
 import { ShortcutHelp } from './ShortcutHelp';
 import { useCompletionNotifier } from './notifier';
 import { SessionDrawer } from '../session/SessionDrawer';
-import { useLive } from '../../lib/live';
+import { useLiveSelector } from '../../lib/live';
 import { ProgressBar } from '../ui';
 import { cn } from '../../lib/cn';
 import { fmtBytes } from '../../lib/format';
@@ -51,7 +51,14 @@ const TITLES: [string, string][] = [
 export function AppLayout() {
   const location = useLocation();
   const navigate = useNavigate();
-  const { ingest, sessions: liveSessions } = useLive();
+  // Selected, not useLive(): the full session list changes several times a
+  // second while Claude works, and the whole shell re-rendered with it. The
+  // shell only needs the two badge counts and the ingest banner.
+  const { ingest, needsYou, working } = useLiveSelector((s) => ({
+    ingest: s.ingest,
+    needsYou: s.sessions.filter((x) => x.status === 'needs-you').length,
+    working: s.sessions.filter((x) => x.status === 'working').length,
+  }));
   const { theme, toggle: toggleTheme } = useTheme();
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
@@ -62,11 +69,9 @@ export function AppLayout() {
   useEffect(() => {
     const nav = navigator as Navigator & { setAppBadge?: (n?: number) => Promise<void>; clearAppBadge?: () => Promise<void> };
     if (!nav.setAppBadge) return;
-    const needsYou = liveSessions.filter((s) => s.status === 'needs-you').length;
-    const working = liveSessions.filter((s) => s.status === 'working').length;
     const n = needsYou > 0 ? needsYou : working;
     (n > 0 ? nav.setAppBadge(n) : nav.clearAppBadge?.())?.catch(() => { /* unsupported */ });
-  }, [liveSessions]);
+  }, [needsYou, working]);
 
   const title = TITLES.find(([p]) => location.pathname.startsWith(p))?.[1] ?? 'Dashboard';
   const indexing = ingest && (ingest.phase === 'backfill' || ingest.phase === 'rescan') && ingest.filesTotal > 0;

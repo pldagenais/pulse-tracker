@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, Download, RefreshCw } from 'lucide-react';
 import { statusQuery, settingsQuery, parseFailuresQuery, webhooksQuery } from '../lib/queries';
 import { api, qs } from '../lib/api';
-import { useLive } from '../lib/live';
+import { useLiveSelector } from '../lib/live';
 import { fmtBytes, fmtCount, fmtDuration, fmtRelative, plural } from '../lib/format';
 import { Card, Skeleton, WriteError, useWriteAction } from '../components/ui';
 import type { Webhook } from '../lib/types';
@@ -15,7 +15,7 @@ import { cn } from '../lib/cn';
 
 export default function StatusPage() {
   const q = useQuery(statusQuery());
-  const { connection } = useLive();
+  const connection = useLiveSelector((s) => s.connection);
   const d = q.data;
 
   return (
