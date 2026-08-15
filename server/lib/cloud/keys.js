@@ -49,6 +49,21 @@ export function staticSnapshots(todayKey, addDays) {
 }
 
 /**
+ * Per-project detail mirrors. Unlike the static entries these are derived at
+ * sync time, because the project list grows as new folders are worked in.
+ * Without them the remote Projects page opens to an empty snapshot.
+ * @param {{id: number}[]} projects
+ * @returns {{key: string, kind: string, path: string}[]}
+ */
+export function projectSnapshots(projects) {
+  return (projects ?? []).map((p) => ({
+    key: `project:${p.id}`,
+    kind: 'project',
+    path: `/api/projects/${p.id}`,
+  }));
+}
+
+/**
  * Day-keyed mirrors across a rolling window, newest first.
  * @param {number} days
  * @param {string} todayKey

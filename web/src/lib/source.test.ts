@@ -56,10 +56,19 @@ describe('resolveRemote', () => {
     });
   });
 
+  it('maps the live list to its mirrored snapshot', () => {
+    expect(resolveRemote('/api/live')).toEqual({
+      fn: 'snapshots:get',
+      args: { key: 'live' },
+    });
+  });
+
   it('returns null for capabilities that need the local machine', () => {
     expect(resolveRemote('/api/manage/mcp')).toBeNull();
     expect(resolveRemote('/api/memory')).toBeNull();
     expect(resolveRemote('/api/routines')).toBeNull();
     expect(resolveRemote('/api/projects/9/open')).toBeNull();
+    // reports are produced by the local CLI and never mirrored
+    expect(resolveRemote('/api/report/3')).toBeNull();
   });
 });
