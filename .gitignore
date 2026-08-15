@@ -15,3 +15,6 @@ web/node_modules/
 # vendored agent skills — regenerate with: npx convex ai-files install
 .claude/skills/
 .agents/skills/
+
+.vercel
+.env*
