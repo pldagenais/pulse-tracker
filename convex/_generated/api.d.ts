@@ -8,9 +8,16 @@
  * @module
  */
 
+import type * as agentStatus from "../agentStatus.js";
 import type * as auth from "../auth.js";
 import type * as http from "../http.js";
+import type * as jobs from "../jobs.js";
+import type * as journal from "../journal.js";
 import type * as lib_guards from "../lib/guards.js";
+import type * as prompts from "../prompts.js";
+import type * as sessions from "../sessions.js";
+import type * as snapshots from "../snapshots.js";
+import type * as sync from "../sync.js";
 
 import type {
   ApiFromModules,
@@ -19,9 +26,16 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  agentStatus: typeof agentStatus;
   auth: typeof auth;
   http: typeof http;
+  jobs: typeof jobs;
+  journal: typeof journal;
   "lib/guards": typeof lib_guards;
+  prompts: typeof prompts;
+  sessions: typeof sessions;
+  snapshots: typeof snapshots;
+  sync: typeof sync;
 }>;
 
 /**
