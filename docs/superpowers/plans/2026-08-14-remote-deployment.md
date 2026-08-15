@@ -1843,3 +1843,54 @@ Verified end to end: mirror (177 snapshots / 40 sessions / 300 prompts), GitHub 
 redirect with correct client id, PKCE and callback, local mode unchanged, and a job
 queued in Convex claimed by the local agent and executed (exit 0, "PONG", 13.5s,
 ingested as a normal session).
+
+## Post-deployment fixes (2026-08-14, same day)
+
+The first live run of the deployment failed in four ways. All four are the same
+underlying mistake: **the cloud path was never exercised against a real signed-in
+session**, so nothing caught a claim or an envelope that differed from the local
+API.
+
+**1. Nobody could read anything.** `requireUser` matched the allow-list against
+`identity.nickname`, but Convex Auth signs only `sub/iss/aud/iat/exp` — the JWT
+carries no email, name, or GitHub login. The login resolved to `""`, `isAllowed`
+failed closed, and every user-facing query threw "Account not permitted", which
+renders as a signed-in shell with empty cards. The guard now resolves the user via
+`getAuthUserId` and matches the email on the `users` row; the allow-list env var is
+`ALLOWED_USERS` (`ALLOWED_GITHUB_LOGINS` is still read as a fallback).
+
+The tests passed against the broken guard because `withIdentity({nickname})` supplied
+a claim the real token never carries. They now insert a `users` row and present a
+`<userId>|<sessionId>` subject — the shape Convex Auth actually produces
+(`convex/lib/testUser.ts`).
+
+**2. The pill said "reconnecting…" forever.** Cloud mode opened an EventSource
+against Vercel, which serves no SSE. `LiveProvider` now splits: local keeps SSE,
+cloud polls the mirrored `live` snapshot every 15s and invalidates page queries at
+60s, matching the agent's own sync cadence rather than refetching four times per
+mirror update.
+
+**3. The dashboard, then the Run page, crashed on undefined.** The hand-written read
+functions returned bare arrays where the REST routes return envelopes
+(`{total, page, pageSize, rows}`, `{jobs, running}`), and `jobs:list` returned queue
+rows (`{kind, payload}`) where the page renders local `jobRow` fields. Shape parity
+was supposed to hold by construction; these functions were exactly the places it did
+not, because they were written by hand instead of mirroring a response. Each now
+returns its route's envelope, and the tests assert the envelope rather than the inner
+array.
+
+**4. Project details, calendars and reports were blank.** They resolved to snapshot
+keys the agent never wrote. The agent now mirrors, per project, `/api/projects/:id`,
+the current month's calendar, and the all-time report (a few KB each) — the report
+range is normalised away exactly as `/api/stats` already does. The PDF export is
+rendered by the local server, so that link is hidden in cloud mode.
+
+Verified in the browser against the live deployment: dashboard, timeline, projects,
+project detail (calendar populated), sessions, prompts, insights, journal, status,
+mission, run, and report all render real data with **zero console errors**. The live
+pill reads "3 working · 2 cloud".
+
+**Note for future work:** a stale service worker served the old bundle after deploying,
+which made a fixed page look broken. When verifying a deploy, check the served bundle
+hash or use a fresh tab — the app's own `vite:preloadError` reload handles this for
+users, but not for a tab that is already open.
