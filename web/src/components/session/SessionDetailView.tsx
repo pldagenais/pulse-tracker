@@ -114,7 +114,9 @@ export function SessionDetailView({ detail, highlightPrompt }: { detail: Session
         )}
       </div>
 
-      <TagsAndNote sessionId={s.id} tags={s.tags} note={s.note} />
+      {/* keyed: its state seeds from props, so without a key a cached session
+          would render (and then SAVE) the previously viewed session's tags */}
+      <TagsAndNote key={s.id} sessionId={s.id} tags={s.tags} note={s.note} />
 
       {/* commits landed during this session */}
       {commits.length > 0 && (
@@ -340,8 +342,19 @@ function TagsAndNote({ sessionId, tags: initialTags, note: initialNote }: { sess
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [err, setErr] = useState<string | null>(null);
 
+  /**
+   * Adopts the server's echo rather than trusting the optimistic value, so a
+   * tag the server normalises or drops stops rendering as if it were accepted.
+   */
   const save = async (nextTags: string[], nextNote: string) => {
-    await api.put(`/api/sessions/${sessionId}/meta`, { tags: nextTags, note: nextNote });
+    const saved = await api.put<{ tags: string[]; note: string | null }>(
+      `/api/sessions/${sessionId}/meta`,
+      { tags: nextTags, note: nextNote }
+    );
+    if (saved) {
+      setTags(saved.tags ?? nextTags);
+      setNote(saved.note ?? '');
+    }
     queryClient.invalidateQueries({ queryKey: ['session'] });
   };
   const addTag = (t: string) => {

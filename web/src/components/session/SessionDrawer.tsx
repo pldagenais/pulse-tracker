@@ -68,7 +68,9 @@ export function SessionDrawer() {
         <div className="min-h-0 flex-1 overflow-y-auto p-4">
           {q.isLoading && <SkeletonRows n={6} />}
           {q.isError && <ErrorState message={String(q.error)} onRetry={() => q.refetch()} />}
-          {q.data && <SessionDetailView detail={q.data} highlightPrompt={promptId} />}
+          {/* keyed: the drawer stays mounted across sessions, so without this
+              its child state would carry over from the previous one */}
+          {q.data && <SessionDetailView key={q.data.session.id} detail={q.data} highlightPrompt={promptId} />}
         </div>
       </div>
     </div>

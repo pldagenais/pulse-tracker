@@ -17,7 +17,9 @@ export default function SessionPage() {
       </Link>
       {q.isLoading && <SkeletonRows n={8} />}
       {q.isError && <ErrorState message={String(q.error)} onRetry={() => q.refetch()} />}
-      {q.data && <SessionDetailView detail={q.data} highlightPrompt={params.get('prompt')} />}
+      {/* keyed so per-session UI state (tags, expanded prompts, replay) cannot
+          survive a navigation into a different session */}
+      {q.data && <SessionDetailView key={q.data.session.id} detail={q.data} highlightPrompt={params.get('prompt')} />}
     </div>
   );
 }
