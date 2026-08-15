@@ -18,6 +18,13 @@ export const PORT = Number(process.env.CLAUDE_TRACKER_PORT || 5599);
 export const APP_NAME = 'claude-time-tracker';
 export const APP_VERSION = '1.0.0';
 
+// Cloud mirror (opt-in). Absent config disables sync entirely, so the local
+// app behaves exactly as it always has.
+export const CLOUD_URL = process.env.PULSE_CONVEX_URL || '';
+export const CLOUD_KEY = process.env.PULSE_AGENT_KEY || '';
+export const CLOUD_SYNC_DAYS = Number(process.env.PULSE_SYNC_DAYS || 90);
+export const CLOUD_ENABLED = !!(CLOUD_URL && CLOUD_KEY);
+
 // Timing-model defaults (minutes; overridable via settings table)
 export const DEFAULT_IDLE_THRESHOLD_MIN = 10;
 export const DEFAULT_STALL_CAP_MIN = 10;

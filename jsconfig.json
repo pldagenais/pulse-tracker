@@ -12,5 +12,7 @@
     "maxNodeModuleJsDepth": 0,
     "types": ["node"]
   },
-  "include": ["server/**/*.js", "server/**/*.d.ts", "hooks/*.mjs", "scripts/*.mjs"]
+  "include": ["server/**/*.js", "server/**/*.d.ts", "hooks/*.mjs", "scripts/*.mjs"],
+  "//": "convex/ is TypeScript with bundler resolution — checked by its own tsconfig",
+  "exclude": ["convex", "node_modules", "web"]
 }
