@@ -234,6 +234,10 @@ export interface SessionDetail {
   commits: SessionCommit[];
   /** PR lifecycle by URL (tracked via gh), for the pr_links badges. */
   prStates: Record<string, { state: string | null; mergedAt: number | null }>;
+  /** context-size curve (input side per credited request) with compaction
+   * marks. Optional: cloud session snapshots mirrored before this shipped
+   * never re-mirror, so old sessions arrive without it. */
+  context?: { points: { ts: number; tokens: number; compacted: boolean }[]; compactions: number };
 }
 
 export interface ProjectCalendarData {
@@ -420,6 +424,26 @@ export interface ToolUsageData {
 export interface SkillUsageData {
   skills: { name: string; count: number }[];
   plugins: { name: string; count: number }[];
+}
+
+export interface McpUsageData {
+  servers: { name: string; calls: number; lastUsedAt: number; sessions: number }[];
+  tools: { server: string; name: string; calls: number; lastUsedAt: number }[];
+}
+
+export interface CompactionTaxData {
+  compactions: number;
+  sessionsHit: number;
+  sessionsTotal: number;
+  /** cache-write tokens spent rebuilding context after each collapse */
+  rebuildTokens: number;
+}
+
+export interface FocusStatsData {
+  switches: number;
+  days: { date: string; switches: number }[];
+  longestBlock: { ms: number; project: string; start: number } | null;
+  projectsTouched: number;
 }
 
 export interface JournalEntry {

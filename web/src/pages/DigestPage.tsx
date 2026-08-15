@@ -1,7 +1,7 @@
 import { useQuery, useInfiniteQuery } from '@tanstack/react-query';
 import { Link, useSearchParams } from 'react-router';
 import { ChevronLeft, ChevronRight, Printer } from 'lucide-react';
-import { dailyStatsQuery, projectStatsQuery, sessionsQuery, journalInfiniteQuery } from '../lib/queries';
+import { dailyStatsQuery, projectStatsQuery, sessionsQuery, journalInfiniteQuery, focusStatsQuery } from '../lib/queries';
 import type { DayStat, ProjectSplitRow } from '../lib/types';
 import { todayKey, addDays, weekOf, dayKeyOf } from '../lib/time';
 import { fmtCost, fmtCount, fmtDay, fmtDuration, fmtRelative, plural } from '../lib/format';
@@ -22,6 +22,7 @@ export default function DigestPage() {
     sessionsQuery({ from: days[0], to: days[6], sort: 'duration', pageSize: 8 } as Parameters<typeof sessionsQuery>[0])
   );
   const journal = useInfiniteQuery(journalInfiniteQuery());
+  const focus = useQuery(focusStatsQuery(days[0], days[6]));
 
   const setDate = (d: string) => {
     const next = new URLSearchParams(params);
@@ -102,6 +103,19 @@ export default function DigestPage() {
       <Card title="claude time by day" bodyClassName="p-4">
         {daily.isLoading ? <Skeleton className="h-28" /> : <DayBars days={days} rows={rows} />}
       </Card>
+
+      {focus.data && focus.data.switches > 0 && (
+        <div className="glass rounded-xl px-4 py-2.5 font-mono text-[12px] text-mid">
+          <span className="text-user">{focus.data.switches}</span> project switches across{' '}
+          <span className="text-ink">{focus.data.projectsTouched}</span> projects this week
+          {focus.data.longestBlock && (
+            <>
+              {' '}· longest focus run <span className="text-claude">{fmtDuration(focus.data.longestBlock.ms)}</span> on{' '}
+              {focus.data.longestBlock.project}
+            </>
+          )}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <Card title="by project" bodyClassName="p-3">

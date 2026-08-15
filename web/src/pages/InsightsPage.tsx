@@ -3,7 +3,7 @@ import { Link } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import {
   heatmapQuery, modelStatsQuery, toolStatsQuery, skillStatsQuery, hourStatsQuery, overviewQuery, dailyStatsQuery, prsQuery,
-  tokenFlowQuery, errorFeedQuery, claudeAiQuery,
+  tokenFlowQuery, errorFeedQuery, claudeAiQuery, mcpStatsQuery, compactionStatsQuery, focusStatsQuery,
 } from '../lib/queries';
 import { todayKey, addDays, weekOf } from '../lib/time';
 import type { DayStat, HeatDay } from '../lib/types';
@@ -174,6 +174,12 @@ export default function InsightsPage() {
 
         <TokenFlowCard />
 
+        <CompactionCard from={from} to={to} />
+
+        <FocusCard from={from} to={to} />
+
+        <McpUsageCard from={from} to={to} />
+
         <PrOutcomesCard />
 
         <ErrorFeedCard />
@@ -201,6 +207,113 @@ export default function InsightsPage() {
         </Card>
       </div>
     </div>
+  );
+}
+
+/* Compaction tax: how often context collapsed and what rebuilding it cost.
+ * The sharpest cost event in a long session, previously invisible. */
+function CompactionCard({ from, to }: { from: string; to: string }) {
+  const q = useQuery(compactionStatsQuery(from, to));
+  const d = q.data;
+  return (
+    <Card title="compaction tax" bodyClassName="p-4">
+      {!d ? (
+        <Skeleton className="h-32" />
+      ) : d.compactions === 0 ? (
+        <div className="text-xs text-dim">
+          No compactions detected in range — no session's context collapsed by more than 40%.
+        </div>
+      ) : (
+        <div className="space-y-3">
+          <div className="flex items-baseline gap-6">
+            <div>
+              <div className="font-mono text-[29px] leading-9 font-medium text-ink">{d.compactions}</div>
+              <div className="microlabel mt-0.5">compactions</div>
+            </div>
+            <div>
+              <div className="font-mono text-[29px] leading-9 font-medium text-user">{fmtTokens(d.rebuildTokens)}</div>
+              <div className="microlabel mt-0.5">rebuild tokens</div>
+            </div>
+          </div>
+          <div className="border-t border-line pt-2 font-mono text-[12px] text-dim">
+            {d.sessionsHit} of {d.sessionsTotal} sessions compacted · rebuild = cache writes on the
+            first requests after each collapse
+          </div>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+/* Fragmentation: project switches per day and the longest unbroken run. */
+function FocusCard({ from, to }: { from: string; to: string }) {
+  const q = useQuery(focusStatsQuery(from, to));
+  const d = q.data;
+  const maxDay = d ? Math.max(...d.days.map((x) => x.switches), 1) : 1;
+  return (
+    <Card title="focus & context switching" bodyClassName="p-4">
+      {!d ? (
+        <Skeleton className="h-32" />
+      ) : (
+        <div className="space-y-3">
+          <div className="flex items-baseline gap-6">
+            <div>
+              <div className="font-mono text-[29px] leading-9 font-medium text-ink">{d.switches}</div>
+              <div className="microlabel mt-0.5">project switches</div>
+            </div>
+            {d.longestBlock && (
+              <div className="min-w-0">
+                <div className="truncate font-mono text-[29px] leading-9 font-medium text-claude">
+                  {fmtDuration(d.longestBlock.ms)}
+                </div>
+                <div className="microlabel mt-0.5 truncate" title={d.longestBlock.project}>
+                  longest run · {d.longestBlock.project}
+                </div>
+              </div>
+            )}
+          </div>
+          {d.days.length > 0 && (
+            <div className="flex h-10 items-end gap-[2px]" aria-hidden>
+              {d.days.slice(-30).map((x) => (
+                <div
+                  key={x.date}
+                  className="min-w-[3px] flex-1 rounded-t-[2px] bg-user/60"
+                  style={{ height: `${Math.max((x.switches / maxDay) * 100, 8)}%` }}
+                  title={`${x.date}: ${x.switches} switch${x.switches === 1 ? '' : 'es'}`}
+                />
+              ))}
+            </div>
+          )}
+          <div className="border-t border-line pt-2 font-mono text-[12px] text-dim">
+            {d.projectsTouched} projects touched · a switch = consecutive turns in different projects
+          </div>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+/* Which MCP servers earn their context cost: every configured server burns
+ * tool-definition tokens in every request, used or not. */
+function McpUsageCard({ from, to }: { from: string; to: string }) {
+  const q = useQuery(mcpStatsQuery(from, to));
+  const d = q.data;
+  return (
+    <Card title="mcp servers" bodyClassName="p-4">
+      {!d ? (
+        <Skeleton className="h-32" />
+      ) : d.servers.length === 0 ? (
+        <div className="text-xs text-dim">No MCP tool calls in range.</div>
+      ) : (
+        <div className="space-y-3">
+          <MiniBars rows={d.servers.slice(0, 8).map((s) => ({ label: s.name, value: s.calls }))} />
+          <div className="border-t border-line pt-2 font-mono text-[12px] text-dim">
+            top tool: {d.tools[0] ? `${d.tools[0].name} ×${d.tools[0].calls}` : '—'} · every configured
+            server costs context whether used or not — see Manage for per-server detail
+          </div>
+        </div>
+      )}
+    </Card>
   );
 }
 

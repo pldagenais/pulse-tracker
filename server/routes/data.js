@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import { dayBounds, addDays, todayKey, safeJsonParse } from '../lib/util.js';
 import {
   rangeDaily, heatmapDays, records, hourHistogram, modelSplit, toolUsage, skillUsage,
-  projectSplit, timelineDay, firstActivityDay,
+  projectSplit, timelineDay, firstActivityDay, mcpUsage, compactionTax, focusStats, contextSeries,
 } from '../lib/stats.js';
 import { readLines } from '../lib/lineReader.js';
 import { classifyLine, extractPrompt, assistantMeta, tsMs } from '../lib/parse.js';
@@ -123,6 +123,12 @@ export function mountData(app, ctx) {
         return ok(res, { groupBy, from, to, ...toolUsage(db, fromMs, toMs) });
       case 'skill':
         return ok(res, { groupBy, from, to, ...skillUsage(db, fromMs, toMs) });
+      case 'mcp':
+        return ok(res, { groupBy, from, to, ...mcpUsage(db, fromMs, toMs) });
+      case 'compaction':
+        return ok(res, { groupBy, from, to, ...compactionTax(db, fromMs, toMs) });
+      case 'focus':
+        return ok(res, { groupBy, from, to, ...focusStats(db, fromMs, toMs) });
       default:
         return bad(res, `unknown groupBy: ${groupBy}`);
     }
@@ -337,7 +343,11 @@ export function mountData(app, ctx) {
       db.prepare('SELECT url, state, merged_at FROM pr_status WHERE session_id=?').all(id)
         .map((p) => [p.url, { state: p.state, mergedAt: p.merged_at }])
     );
-    ok(res, { session: sessionRow(r), turns, prompts, agents, toolBreakdown, skills, efforts, commits, prStates });
+    ok(res, {
+      session: sessionRow(r), turns, prompts, agents, toolBreakdown, skills, efforts, commits, prStates,
+      // context-size curve with compaction marks; rides the session mirror to the cloud
+      context: contextSeries(db, id),
+    });
   });
 
   // API/tool failure feed (Insights). History predating this feature fills in

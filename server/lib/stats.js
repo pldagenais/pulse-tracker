@@ -399,6 +399,170 @@ export function skillUsage(db, fromMs, toMs) {
   return { skills, plugins };
 }
 
+/**
+ * MCP server/tool usage from assistant-event attribution. This data has been
+ * written since migration v1 and read by nothing — yet every configured MCP
+ * server burns tool-definition tokens in every request, so "which servers
+ * earn their context cost?" is the question this answers.
+ */
+export function mcpUsage(db, fromMs, toMs) {
+  const servers = db
+    .prepare(
+      `SELECT attr_mcp_server name, count(*) calls, max(ts) lastUsedAt,
+              count(DISTINCT session_id) sessions
+         FROM events WHERE attr_mcp_server IS NOT NULL AND ts>=? AND ts<?
+        GROUP BY attr_mcp_server ORDER BY calls DESC LIMIT 60`
+    )
+    .all(fromMs, toMs)
+    .map((r) => ({ name: r.name, calls: r.calls, lastUsedAt: r.lastUsedAt, sessions: r.sessions }));
+  const tools = db
+    .prepare(
+      `SELECT attr_mcp_server server, attr_mcp_tool name, count(*) calls, max(ts) lastUsedAt
+         FROM events WHERE attr_mcp_server IS NOT NULL AND attr_mcp_tool IS NOT NULL AND ts>=? AND ts<?
+        GROUP BY attr_mcp_server, attr_mcp_tool ORDER BY calls DESC LIMIT 120`
+    )
+    .all(fromMs, toMs)
+    .map((r) => ({ server: r.server, name: r.name, calls: r.calls, lastUsedAt: r.lastUsedAt }));
+  return { servers, tools };
+}
+
+/**
+ * Compaction detector shared by contextSeries and compactionTax. The context
+ * a request carries is its input side: input + cache_read + cache writes. A
+ * drop of more than DROP_RATIO from the running max is a compaction (or a
+ * /clear) — context never shrinks otherwise.
+ */
+const COMPACTION_DROP_RATIO = 0.4;
+const contextOf = (r) =>
+  (r.input_tokens ?? 0) + (r.cache_read_tokens ?? 0) + (r.cache_create_5m ?? 0) + (r.cache_create_1h ?? 0);
+
+/**
+ * Context-size curve for one session, with compaction points flagged. Every
+ * credited event stores the full input-side split, so the curve of any
+ * historical session is already in the DB — the live gauge on Mission Control
+ * was previously the only place this number ever surfaced.
+ */
+export function contextSeries(db, sessionId) {
+  const rows = db
+    .prepare(
+      `SELECT ts, input_tokens, cache_read_tokens, cache_create_5m, cache_create_1h
+         FROM events WHERE session_id=? AND usage_credited=1 ORDER BY ts`
+    )
+    .all(sessionId);
+  const points = [];
+  let runningMax = 0;
+  let compactions = 0;
+  for (const r of rows) {
+    const ctx = contextOf(r);
+    if (ctx <= 0) continue;
+    const compacted = runningMax > 20_000 && ctx < runningMax * (1 - COMPACTION_DROP_RATIO);
+    if (compacted) {
+      compactions += 1;
+      runningMax = ctx; // new epoch: measure the next drop from here
+    } else {
+      runningMax = Math.max(runningMax, ctx);
+    }
+    points.push({ ts: r.ts, tokens: ctx, compacted });
+  }
+  return { points, compactions };
+}
+
+/**
+ * Compaction economics across all sessions in a window: how often context
+ * collapsed, and the cache-write tokens spent rebuilding it afterwards —
+ * the sharpest cost event in a long session, previously invisible.
+ */
+export function compactionTax(db, fromMs, toMs) {
+  const rows = db
+    .prepare(
+      `SELECT session_id, ts, input_tokens, cache_read_tokens, cache_create_5m, cache_create_1h
+         FROM events WHERE usage_credited=1 AND ts>=? AND ts<?
+        ORDER BY session_id, ts`
+    )
+    .all(fromMs, toMs);
+
+  let compactions = 0;
+  let rebuildTokens = 0; // cache writes on the first 3 requests after each drop
+  const sessionsHit = new Set();
+  let curSession = null;
+  let runningMax = 0;
+  let rebuildLeft = 0;
+  for (const r of rows) {
+    if (r.session_id !== curSession) {
+      curSession = r.session_id;
+      runningMax = 0;
+      rebuildLeft = 0;
+    }
+    const ctx = contextOf(r);
+    if (ctx <= 0) continue;
+    const writes = (r.cache_create_5m ?? 0) + (r.cache_create_1h ?? 0);
+    if (runningMax > 20_000 && ctx < runningMax * (1 - COMPACTION_DROP_RATIO)) {
+      compactions += 1;
+      sessionsHit.add(r.session_id);
+      runningMax = ctx;
+      rebuildLeft = 3;
+    } else {
+      runningMax = Math.max(runningMax, ctx);
+    }
+    if (rebuildLeft > 0) {
+      rebuildTokens += writes;
+      rebuildLeft -= 1;
+    }
+  }
+  const sessionsTotal = db
+    .prepare('SELECT count(DISTINCT session_id) c FROM events WHERE usage_credited=1 AND ts>=? AND ts<?')
+    .get(fromMs, toMs)?.c ?? 0;
+  return { compactions, sessionsHit: sessionsHit.size, sessionsTotal, rebuildTokens };
+}
+
+/**
+ * Fragmentation: how often work jumped between projects, and the longest
+ * unbroken same-project run. Insights says when you work and how much; this
+ * says how scattered it was — the metric that explains a bad week.
+ */
+export function focusStats(db, fromMs, toMs) {
+  const turns = db
+    .prepare(
+      `SELECT t.started_at, t.ended_at, COALESCE(p.parent_project_id, p.id) pid, p.name
+         FROM turns t JOIN sessions s ON s.id=t.session_id JOIN projects p ON p.id=s.project_id
+        WHERE t.started_at>=? AND t.started_at<? ORDER BY t.started_at`
+    )
+    .all(fromMs, toMs);
+
+  let switches = 0;
+  const switchesByDay = new Map();
+  let longestBlock = null; // {ms, project, start}
+  let block = null; // {pid, name, intervals: []}
+  const closeBlock = () => {
+    if (!block) return;
+    const merged = mergeIntervals(block.intervals);
+    const ms = sumIntervals(merged);
+    if (!longestBlock || ms > longestBlock.ms) {
+      longestBlock = { ms, project: block.name, start: block.intervals[0].start };
+    }
+    block = null;
+  };
+  for (const t of turns) {
+    if (block && t.pid !== block.pid) {
+      switches += 1;
+      const day = localDayKey(t.started_at);
+      switchesByDay.set(day, (switchesByDay.get(day) ?? 0) + 1);
+      closeBlock();
+    }
+    if (!block) block = { pid: t.pid, name: t.name, intervals: [] };
+    block.intervals.push({ start: t.started_at, end: Math.max(t.ended_at, t.started_at) });
+  }
+  closeBlock();
+
+  const days = [...switchesByDay.entries()].map(([date, n]) => ({ date, switches: n })).sort((a, b) => (a.date < b.date ? -1 : 1));
+  return {
+    switches,
+    days,
+    longestBlock,
+    projectsTouched: new Set(turns.map((t) => t.pid)).size,
+  };
+}
+
 /** Per-project rollup for a ms range (or all time when range is null). */
 export function projectSplit(db, fromMs = null, toMs = null) {
   const where = fromMs != null ? 'WHERE t.started_at>=? AND t.started_at<?' : '';

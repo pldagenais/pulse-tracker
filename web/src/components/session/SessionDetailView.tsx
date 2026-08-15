@@ -187,6 +187,8 @@ export function SessionDetailView({ detail, highlightPrompt }: { detail: Session
         </div>
       </Card>
 
+      {detail.context && detail.context.points.length >= 3 && <ContextCurve context={detail.context} />}
+
       {/* tokens & cost */}
       <Card title="tokens · est. cost" bodyClassName="p-0">
         <table className="w-full font-mono text-xs">
@@ -338,6 +340,53 @@ export function SessionDetailView({ detail, highlightPrompt }: { detail: Session
       )}
       {!s.worktreeBranch && <ContinueBox sessionId={s.id} />}
     </div>
+  );
+}
+
+/**
+ * Context-size curve: the input side of every credited request IS the context
+ * at that instant. A sawtooth means compaction; each drop is ticked. Until now
+ * this number existed only as a live gauge and vanished when a session idled.
+ */
+function ContextCurve({ context }: { context: NonNullable<SessionDetail['context']> }) {
+  const { points, compactions } = context;
+  const W = 860;
+  const H = 96;
+  const PAD = 4;
+  const t0 = points[0].ts;
+  const t1 = points[points.length - 1].ts;
+  const span = Math.max(t1 - t0, 1);
+  const max = Math.max(...points.map((p) => p.tokens), 1);
+  const x = (ts: number) => PAD + ((ts - t0) / span) * (W - PAD * 2);
+  const y = (tok: number) => H - PAD - (tok / max) * (H - PAD * 2);
+  const path = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${x(p.ts).toFixed(1)},${y(p.tokens).toFixed(1)}`).join(' ');
+  const area = `${path} L${x(t1).toFixed(1)},${H - PAD} L${x(t0).toFixed(1)},${H - PAD} Z`;
+  const peak = points.reduce((a, b) => (b.tokens > a.tokens ? b : a));
+  return (
+    <Card
+      title={`context window${compactions > 0 ? ` · ${plural(compactions, 'compaction')}` : ''}`}
+      bodyClassName="p-4"
+    >
+      <svg viewBox={`0 0 ${W} ${H}`} className="block w-full" aria-hidden>
+        <path d={area} fill={CLAUDE_COLOR} opacity={0.12} />
+        <path d={path} fill="none" stroke={CLAUDE_COLOR} strokeWidth={1.5} />
+        {points.filter((p) => p.compacted).map((p) => (
+          <g key={p.ts}>
+            <line x1={x(p.ts)} x2={x(p.ts)} y1={PAD} y2={H - PAD} stroke={USER_COLOR} strokeWidth={1} strokeDasharray="2 3" />
+            <circle cx={x(p.ts)} cy={y(p.tokens)} r={2.5} fill={USER_COLOR} />
+          </g>
+        ))}
+      </svg>
+      <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[12px] text-dim">
+        <span>peak <span className="text-claude">{fmtTokens(peak.tokens)}</span> at {fmtClock(peak.ts)}</span>
+        <span>final <span className="text-ink">{fmtTokens(points[points.length - 1].tokens)}</span></span>
+        {compactions > 0 && (
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block h-2 w-0.5" style={{ background: USER_COLOR }} /> compaction (context dropped &gt;40%)
+          </span>
+        )}
+      </div>
+    </Card>
   );
 }
 

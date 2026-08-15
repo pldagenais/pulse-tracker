@@ -2,8 +2,9 @@ import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plug, RefreshCw, Trash2, Plus, Sparkles, Bot, Package } from 'lucide-react';
 import { api } from '../lib/api';
-import { mcpServersQuery, manageInventoryQuery } from '../lib/queries';
-import { fmtRelative, plural } from '../lib/format';
+import { mcpServersQuery, manageInventoryQuery, mcpStatsQuery } from '../lib/queries';
+import { todayKey, addDays } from '../lib/time';
+import { fmtCount, fmtRelative, plural } from '../lib/format';
 import { Badge, Card, Skeleton } from '../components/ui';
 import { RoutinesCard } from '../components/manage/RoutinesCard';
 import { MemoryCard } from '../components/manage/MemoryCard';
@@ -28,6 +29,10 @@ export default function ManagePage() {
 
 function McpCard() {
   const q = useQuery(mcpServersQuery());
+  // 90d usage from event attribution: which of these servers earn their
+  // context cost. Joined by name; "never used" is the interesting signal.
+  const usage = useQuery(mcpStatsQuery(addDays(todayKey(), -89), todayKey()));
+  const usageByName = new Map((usage.data?.servers ?? []).map((s) => [s.name.toLowerCase(), s]));
   const queryClient = useQueryClient();
   const [name, setName] = useState('');
   const [command, setCommand] = useState('');
@@ -89,11 +94,19 @@ function McpCard() {
         </div>
       )}
       {q.isError && <div className="px-4 py-3 font-mono text-[12px] text-danger">{String((q.error as Error).message)}</div>}
-      {q.data?.servers.map((s) => (
+      {q.data?.servers.map((s) => {
+        const u = usageByName.get(s.name.toLowerCase());
+        return (
         <div key={s.name} className="flex items-center gap-3 border-b border-line/60 px-4 py-2 last:border-0">
           <span className={cn('h-2 w-2 shrink-0 rounded-full', s.healthy ? 'bg-ok' : 'bg-danger')} title={s.status} />
           <span className="w-40 shrink-0 truncate font-mono text-xs text-ink">{s.name}</span>
           <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-dim" title={s.command}>{s.command}</span>
+          <span
+            className={cn('shrink-0 font-mono text-[11px]', u ? 'text-mid' : 'text-dim')}
+            title={u ? `${u.calls} calls across ${u.sessions} sessions in the last 90 days` : 'No recorded tool calls in the last 90 days — this server still costs context in every request'}
+          >
+            {u ? `${fmtCount(u.calls)} calls · last ${fmtRelative(u.lastUsedAt)}` : 'never used in 90d'}
+          </span>
           <span className={cn('shrink-0 font-mono text-[11px]', s.healthy ? 'text-ok' : 'text-danger')}>{s.status || (s.healthy ? 'connected' : 'failed')}</span>
           <button
             onClick={() => remove(s.name)}
@@ -104,7 +117,8 @@ function McpCard() {
             <Trash2 size={11} />
           </button>
         </div>
-      ))}
+        );
+      })}
       <div className="flex flex-wrap items-center gap-2 border-t border-line px-4 py-3">
         <Plug size={13} className="text-dim" />
         <input
