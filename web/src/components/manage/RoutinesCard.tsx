@@ -9,7 +9,7 @@ import { api } from '../../lib/api';
 import { routinesQuery } from '../../lib/queries';
 import type { CloudRoutine } from '../../lib/types';
 import { fmtRelative } from '../../lib/format';
-import { Card, Skeleton } from '../ui';
+import { Card, Skeleton, Switch } from '../ui';
 import { cn } from '../../lib/cn';
 
 export function RoutinesCard() {
@@ -107,16 +107,7 @@ function RoutineRow({ r, busy, onRun, onToggle }: { r: CloudRoutine; busy: strin
   return (
     <div className="flex items-center gap-3 border-b border-line/60 px-4 py-2 last:border-0">
       {onToggle ? (
-        <button
-          onClick={onToggle}
-          disabled={busy === r.id}
-          role="switch"
-          aria-checked={r.enabled}
-          aria-label={`Toggle ${r.name}`}
-          className={cn('relative h-4 w-8 shrink-0 rounded-full border disabled:opacity-50', r.enabled ? 'border-claude/60 bg-claude/30' : 'border-line2 bg-raise')}
-        >
-          <span className={cn('absolute top-0.5 h-2.5 w-2.5 rounded-full transition-all', r.enabled ? 'left-[18px] bg-claude' : 'left-0.5 bg-dim')} />
-        </button>
+        <Switch checked={r.enabled} onChange={onToggle} disabled={busy === r.id} aria-label={`Toggle ${r.name}`} />
       ) : (
         <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-dim/40" />
       )}

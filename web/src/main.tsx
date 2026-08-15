@@ -23,6 +23,46 @@ if ('serviceWorker' in navigator) {
   });
 }
 
+// Tell open tabs about new builds. Assets are content-hashed but a tab keeps
+// its loaded modules and cached index.html forever, and vite:preloadError only
+// fires if the user navigates to a route whose chunk 404s. Poll build.json and
+// offer a reload — never force one; the user may be mid-prompt on Run.
+const UPDATE_POLL_MS = 5 * 60_000;
+function watchForNewBuild() {
+  if (import.meta.env.DEV) return;
+  let offered = false;
+  const check = async () => {
+    if (offered) return;
+    try {
+      const r = await fetch('/build.json', { cache: 'no-store' });
+      if (!r.ok) return;
+      const { buildId } = (await r.json()) as { buildId?: string };
+      if (buildId && buildId !== __BUILD_ID__) {
+        offered = true;
+        showUpdateToast();
+      }
+    } catch {
+      /* offline or mid-deploy — try again next tick */
+    }
+  };
+  setInterval(check, UPDATE_POLL_MS);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') check();
+  });
+}
+function showUpdateToast() {
+  const el = document.createElement('div');
+  el.setAttribute('role', 'status');
+  el.className =
+    'fixed bottom-4 right-4 z-[100] flex items-center gap-3 rounded-xl border border-line2 bg-raise px-4 py-3 font-mono text-[12px] text-ink shadow-2xl';
+  el.innerHTML =
+    '<span>A new version of Pulse is available.</span>' +
+    '<button class="rounded border border-claude/50 bg-claude/10 px-2.5 py-1 uppercase tracking-wider text-claude hover:bg-claude/20">reload</button>';
+  el.querySelector('button')?.addEventListener('click', () => window.location.reload());
+  document.body.appendChild(el);
+}
+watchForNewBuild();
+
 // Self-heal after deploys: an open tab from an older build references hashed
 // chunks that no longer exist — reload once instead of crashing on navigation.
 window.addEventListener('vite:preloadError', (e) => {

@@ -342,7 +342,9 @@ html.theme-anim *::after {
 }
 
 /* Card section titles: display face, bolder and brighter than the old
-   microlabel so every pane announces itself. */
+   microlabel so every pane announces itself. Reserved for the Card header in
+   ui.tsx — a KPI label must use .microlabel, or the label outshouts the value
+   (this happened on Mission Control). */
 .card-title {
   font-family: var(--font-display);
   font-size: 14px;

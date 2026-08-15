@@ -5,7 +5,7 @@ import { statusQuery, settingsQuery, parseFailuresQuery, webhooksQuery } from '.
 import { api, qs } from '../lib/api';
 import { useLiveSelector } from '../lib/live';
 import { fmtBytes, fmtCount, fmtDuration, fmtRelative, plural } from '../lib/format';
-import { Card, Skeleton, WriteError, useWriteAction } from '../components/ui';
+import { Card, Skeleton, Switch, WriteError, useWriteAction } from '../components/ui';
 import type { Webhook } from '../lib/types';
 import { MODE } from '../lib/source';
 
@@ -319,17 +319,13 @@ function WebhookRow({ w, refresh }: { w: Webhook; refresh: () => void }) {
   });
   return (
     <div className="flex items-center gap-3 border-b border-line/60 px-4 py-2">
-      <button
-        onClick={() => toggle.run()}
+      <Switch
+        checked={w.enabled}
+        onChange={() => toggle.run()}
         disabled={toggle.pending || !LOCAL}
         title={LOCAL ? undefined : 'Webhooks need your PC'}
-        role="switch"
-        aria-checked={w.enabled}
         aria-label="Toggle webhook"
-        className={cn('relative h-4 w-8 shrink-0 rounded-full border disabled:opacity-40', w.enabled ? 'border-claude/60 bg-claude/30' : 'border-line2 bg-raise')}
-      >
-        <span className={cn('absolute top-0.5 h-2.5 w-2.5 rounded-full transition-all', w.enabled ? 'left-[18px] bg-claude' : 'left-0.5 bg-dim')} />
-      </button>
+      />
       <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-ink">{w.url}</span>
       <WriteError error={toggle.error ?? del.error} />
       <span className="shrink-0 font-mono text-[11px] text-dim">
@@ -378,23 +374,7 @@ function NotificationsCard() {
           {permission === 'denied' && <span className="text-danger"> Browser permission is denied — allow notifications for this site first.</span>}
         </div>
       </div>
-      <button
-        onClick={toggle}
-        role="switch"
-        aria-checked={enabled}
-        aria-label="Toggle completion notifications"
-        className={cn(
-          'relative h-5 w-9 shrink-0 rounded-full border transition-colors',
-          enabled ? 'border-claude/60 bg-claude/30' : 'border-line2 bg-raise'
-        )}
-      >
-        <span
-          className={cn(
-            'absolute top-0.5 h-3.5 w-3.5 rounded-full transition-all',
-            enabled ? 'left-[18px] bg-claude' : 'left-0.5 bg-dim'
-          )}
-        />
-      </button>
+      <Switch checked={enabled} onChange={toggle} size="md" aria-label="Toggle completion notifications" />
     </Card>
   );
 }

@@ -69,13 +69,15 @@ export function Card({
 }
 
 export function StatCard({
-  label, value, sub, accent, title,
+  label, value, sub, accent, title, topRight,
 }: {
   label: string;
   value: ReactNode;
   sub?: ReactNode;
   accent?: 'claude' | 'user' | 'none';
   title?: string;
+  /** small readout beside the label (icon, percentage chip, …) */
+  topRight?: ReactNode;
 }) {
   return (
     <div className="glass glass-hover relative h-full overflow-hidden rounded-xl px-4 py-3.5" title={title}>
@@ -85,7 +87,14 @@ export function StatCard({
           className={cn('absolute inset-y-0 left-0 w-0.5', accent === 'claude' ? 'bg-claude' : 'bg-user')}
         />
       )}
-      <div className="microlabel">{label}</div>
+      {topRight ? (
+        <div className="flex items-baseline justify-between gap-2">
+          <div className="microlabel">{label}</div>
+          {topRight}
+        </div>
+      ) : (
+        <div className="microlabel">{label}</div>
+      )}
       <div className="mt-1 font-mono text-[29px] leading-9 font-medium tracking-tight text-ink">
         {/* re-keying on the rendered value pops the number when live data changes */}
         <span key={typeof value === 'string' || typeof value === 'number' ? String(value) : undefined} className="stat-pop inline-block">
@@ -176,11 +185,70 @@ export function SegmentedControl<T extends string>({
 }
 
 export function ProgressBar({ value, max, className }: { value: number; max: number; className?: string }) {
-  const pct = max > 0 ? Math.min((value / max) * 100, 100) : 0;
+  const pct = max > 0 ? Math.min(value / max, 1) : 0;
+  // full-width fill scaled on transform: width animates on the main thread
+  // and forces layout; scaleX composites
   return (
     <div className={cn('h-1 overflow-hidden rounded-full bg-raise', className)}>
-      <div className="h-full rounded-full bg-claude transition-[width] duration-500" style={{ width: `${pct}%` }} />
+      <div
+        className="h-full w-full origin-left rounded-full bg-claude transition-transform duration-500"
+        style={{ transform: `scaleX(${pct})` }}
+      />
     </div>
+  );
+}
+
+/**
+ * The app's toggle. The knob travels on `transform`, not `left`: the old
+ * hand-rolled versions animated a layout property under transition-all, and
+ * at the 17px root their fixed 18px offset left the knob 2.1px from one end
+ * but 5.4px from the other. Travel is computed so both ends inset equally.
+ */
+export function Switch({
+  checked,
+  onChange,
+  disabled,
+  size = 'sm',
+  title,
+  'aria-label': ariaLabel,
+}: {
+  checked: boolean;
+  onChange: () => void;
+  disabled?: boolean;
+  size?: 'sm' | 'md';
+  title?: string;
+  'aria-label': string;
+}) {
+  // px geometry: [track w, track h, knob, inset]
+  const [tw, th, k, inset] = size === 'md' ? [36, 20, 14, 3] : [32, 16, 10, 3];
+  const travel = tw - k - inset * 2;
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={ariaLabel}
+      title={title}
+      disabled={disabled}
+      onClick={onChange}
+      className={cn(
+        'relative shrink-0 rounded-full border transition-colors disabled:opacity-40',
+        checked ? 'border-claude/60 bg-claude/30' : 'border-line2 bg-raise'
+      )}
+      style={{ width: tw, height: th }}
+    >
+      <span
+        className={cn('absolute rounded-full transition-transform duration-[140ms]', checked ? 'bg-claude' : 'bg-dim')}
+        style={{
+          width: k,
+          height: k,
+          left: inset,
+          top: (th - k) / 2 - 1, // -1 for the border
+          transform: checked ? `translateX(${travel}px)` : 'translateX(0)',
+          transitionTimingFunction: 'var(--ease)',
+        }}
+      />
+    </button>
   );
 }
 

@@ -138,14 +138,14 @@ export default function PromptsPage() {
           value={from ?? ''}
           onChange={(e) => setFilter('from', e.target.value || null)}
           aria-label="From date"
-          className="rounded-md border border-line bg-surface px-2 py-2 text-xs text-mid outline-none [color-scheme:dark]"
+          className="rounded-md border border-line bg-surface px-2 py-2 text-xs text-mid outline-none"
         />
         <input
           type="date"
           value={to ?? ''}
           onChange={(e) => setFilter('to', e.target.value || null)}
           aria-label="To date"
-          className="rounded-md border border-line bg-surface px-2 py-2 text-xs text-mid outline-none [color-scheme:dark]"
+          className="rounded-md border border-line bg-surface px-2 py-2 text-xs text-mid outline-none"
         />
         {(from || to) && (
           <button

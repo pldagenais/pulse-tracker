@@ -6,7 +6,7 @@ import { api } from '../lib/api';
 import { jobsQuery, templatesQuery, projectsQuery, schedulesQuery } from '../lib/queries';
 import type { Project, PromptTemplate, PulseJob, ScheduledJob } from '../lib/types';
 import { fmtClock, fmtDuration, fmtRelative, plural } from '../lib/format';
-import { Badge, Card, EmptyState, WriteError, useWriteAction } from '../components/ui';
+import { Badge, Card, EmptyState, Switch, WriteError, useWriteAction } from '../components/ui';
 import { MODE } from '../lib/source';
 
 /** Writes that need the local machine are disabled rather than left to fail. */
@@ -361,20 +361,13 @@ function ScheduleRow({ s, roots, onChange }: { s: ScheduledJob; roots: Project[]
   const failing = s.consecutiveFailures > 0;
   return (
     <div className="flex items-center gap-3 border-b border-line/60 px-4 py-2.5 last:border-0">
-      <button
-        onClick={() => toggle.run()}
+      <Switch
+        checked={s.enabled}
+        onChange={() => toggle.run()}
         disabled={toggle.pending || !LOCAL}
         title={LOCAL ? undefined : 'Schedules need your PC'}
-        role="switch"
-        aria-checked={s.enabled}
         aria-label={`Toggle ${s.name}`}
-        className={cn(
-          'relative h-4 w-8 shrink-0 rounded-full border',
-          s.enabled ? 'border-claude/60 bg-claude/30' : 'border-line2 bg-raise'
-        )}
-      >
-        <span className={cn('absolute top-0.5 h-2.5 w-2.5 rounded-full transition-all', s.enabled ? 'left-[18px] bg-claude' : 'left-0.5 bg-dim')} />
-      </button>
+      />
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline gap-2 text-xs text-ink">
           <span className="truncate">{s.name}</span>

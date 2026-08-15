@@ -6,7 +6,7 @@ import { usageWindowQuery } from '../lib/queries';
 import { api } from '../lib/api';
 import type { LiveSession } from '../lib/types';
 import { fmtCost, fmtDuration, fmtElapsed, fmtModel, fmtRelative, plural } from '../lib/format';
-import { EmptyState, ProgressBar } from '../components/ui';
+import { EmptyState, ProgressBar, StatCard } from '../components/ui';
 import { cn } from '../lib/cn';
 
 export default function MissionPage() {
@@ -21,51 +21,64 @@ export default function MissionPage() {
 
   return (
     <div className="fade-up w-full space-y-4 p-5">
-      {/* rate-window strip */}
+      {/* rate-window strip — StatCard, same as every other KPI in the app:
+          the page about live pressure had its headline numbers at ~65% the
+          size of everyone else's, under labels louder than the values */}
       {u && (
         <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
-          <div className="glass rounded-xl px-4 py-3">
-            <div className="flex items-center justify-between">
-              <span className="card-title flex items-center gap-1.5"><Gauge size={12} /> trailing 5h window</span>
-              {pct5h != null && (
-                <span className={cn('font-mono text-[11px]', pct5h > 85 ? 'text-danger' : pct5h > 60 ? 'text-user' : 'text-dim')}>
-                  {Math.round(pct5h)}% of your estimate
+          <StatCard
+            label="trailing 5h window"
+            accent="user"
+            value={fmtCost(u.window5h.estCostUsd)}
+            topRight={
+              pct5h != null ? (
+                <span className={cn('flex items-center gap-1 font-mono text-[11px]', pct5h > 85 ? 'text-danger' : pct5h > 60 ? 'text-user' : 'text-dim')}>
+                  <Gauge size={11} aria-hidden /> {Math.round(pct5h)}% of your estimate
                 </span>
-              )}
-            </div>
-            <div className="mt-1 font-mono text-lg text-ink">
-              {fmtCost(u.window5h.estCostUsd)}
-              <span className="ml-2 text-[12px] text-dim">{plural(u.window5h.prompts, 'prompt')} · {plural(u.window5h.turns, 'turn')}</span>
-            </div>
-            {pct5h != null && <ProgressBar value={u.window5h.estCostUsd} max={u.ceiling5hUsd!} className="mt-2" />}
-            <div className="mt-1.5 font-mono text-[11px] text-dim">
-              {u.easesAt && u.easesAt > now ? `pressure eases ${fmtRelative(u.easesAt)}` : 'window is quiet'}
-              {u.ceiling5hUsd == null && ' · set a 5h estimate in Status to see a fill bar'}
-            </div>
-          </div>
-          <div className="glass rounded-xl px-4 py-3">
-            <span className="card-title">trailing 7 days</span>
-            <div className="mt-1 font-mono text-lg text-ink">
-              {fmtCost(u.window7d.estCostUsd)}
-              <span className="ml-2 text-[12px] text-dim">{plural(u.window7d.prompts, 'prompt')}</span>
-            </div>
-            <div className="mt-1.5 font-mono text-[11px] text-dim">est. API-equivalent consumed this week</div>
-          </div>
-          <div className="glass rounded-xl px-4 py-3">
-            <span className="card-title">fleet</span>
-            <div className="mt-1 font-mono text-lg text-ink">
-              {sessions.filter((s) => s.status === 'working').length} working
-              <span className="ml-2 text-[12px] text-dim">
-                {sessions.filter((s) => s.status === 'needs-you').length > 0 && `${sessions.filter((s) => s.status === 'needs-you').length} need you · `}
-                {sessions.filter((s) => s.cloud).length} cloud · {sessions.reduce((t, s) => t + s.agentsActive, 0)} subagents
+              ) : (
+                <Gauge size={11} className="text-dim" aria-hidden />
+              )
+            }
+            sub={
+              <span className="flex flex-col gap-1.5">
+                <span>{plural(u.window5h.prompts, 'prompt')} · {plural(u.window5h.turns, 'turn')}</span>
+                {pct5h != null && <ProgressBar value={u.window5h.estCostUsd} max={u.ceiling5hUsd!} />}
+                <span className="font-mono text-[11px]">
+                  {u.easesAt && u.easesAt > now ? `pressure eases ${fmtRelative(u.easesAt)}` : 'window is quiet'}
+                  {u.ceiling5hUsd == null && ' · set a 5h estimate in Status to see a fill bar'}
+                </span>
               </span>
-            </div>
-            <div className="mt-1.5 font-mono text-[11px] text-dim">
-              {u.burnTokPerMin > 0
-                ? <>burn <span className="text-claude">{u.burnTokPerMin.toLocaleString()} tok/min</span> (15m avg)</>
-                : 'no token burn in the last 15 minutes'}
-            </div>
-          </div>
+            }
+          />
+          <StatCard
+            label="trailing 7 days"
+            accent="user"
+            value={fmtCost(u.window7d.estCostUsd)}
+            sub={
+              <span className="flex flex-col gap-0.5">
+                <span>{plural(u.window7d.prompts, 'prompt')}</span>
+                <span className="font-mono text-[11px]">est. API-equivalent consumed this week</span>
+              </span>
+            }
+          />
+          <StatCard
+            label="fleet"
+            accent="claude"
+            value={`${sessions.filter((s) => s.status === 'working').length} working`}
+            sub={
+              <span className="flex flex-col gap-0.5">
+                <span>
+                  {sessions.filter((s) => s.status === 'needs-you').length > 0 && `${sessions.filter((s) => s.status === 'needs-you').length} need you · `}
+                  {sessions.filter((s) => s.cloud).length} cloud · {sessions.reduce((t, s) => t + s.agentsActive, 0)} subagents
+                </span>
+                <span className="font-mono text-[11px]">
+                  {u.burnTokPerMin > 0
+                    ? <>burn <span className="text-claude">{u.burnTokPerMin.toLocaleString()} tok/min</span> (15m avg)</>
+                    : 'no token burn in the last 15 minutes'}
+                </span>
+              </span>
+            }
+          />
         </div>
       )}
 
