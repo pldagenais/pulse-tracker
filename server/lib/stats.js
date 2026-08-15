@@ -2,7 +2,7 @@
 // agent_runs). Interval math runs in JS — a few hundred turns — so every
 // request recomputes fresh; no rollup tables to invalidate.
 import { mergeIntervals, sumIntervals, clipInterval, dayBounds, localDayKey, addDays, todayKey } from './util.js';
-import { timingSettings } from './aggregate.js';
+import { timingSettings, dataVersion } from './aggregate.js';
 import { estimateCost } from './pricing.js';
 
 /** All turns + between-turn review gaps (user-active intervals), per session. */
@@ -160,7 +160,11 @@ const round2 = (n) => Math.round(n * 100) / 100;
 
 /** Daily series merged with legacy (pre-transcript) counts, for the heatmap. */
 export function heatmapDays(db, fromDay, toDay) {
-  const daily = rangeDaily(db, fromDay, toDay);
+  return mergeLegacy(db, rangeDaily(db, fromDay, toDay), fromDay, toDay);
+}
+
+/** Overlay legacy_daily counts onto an already-computed daily series. */
+function mergeLegacy(db, daily, fromDay, toDay) {
   const legacyRows = db.prepare('SELECT * FROM legacy_daily WHERE date>=? AND date<=?').all(fromDay, toDay);
   const legacy = new Map(legacyRows.map((r) => [r.date, r]));
   return daily.map((d) => {
@@ -190,11 +194,34 @@ export function firstActivityDay(db) {
   return candidates.length ? candidates.sort()[0] : todayKey();
 }
 
-/** Streaks + personal records across the whole recorded history. */
+/** @type {{ version: number, day: string, value: any } | null} */
+let recordsCache = null;
+
+/**
+ * Streaks + personal records across the whole recorded history.
+ *
+ * Cached: /api/overview calls this on every request (and the cloud mirror
+ * calls that 90× per sync cycle) while the answer only changes when a turn is
+ * recomputed. The data-version counter in `meta` is bumped by every
+ * recomputeSessions batch, and the local day is part of the key so a streak
+ * cannot survive midnight unrecomputed.
+ */
 export function records(db) {
-  const from = firstActivityDay(db);
+  const version = dataVersion(db);
   const today = todayKey();
-  const series = heatmapDays(db, from, today);
+  if (recordsCache && recordsCache.version === version && recordsCache.day === today) {
+    return recordsCache.value;
+  }
+  const value = computeRecords(db, today);
+  recordsCache = { version, day: today, value };
+  return value;
+}
+
+function computeRecords(db, today) {
+  const from = firstActivityDay(db);
+  // one full-history walk — the heatmap overlay reuses it instead of a second
+  const dailyFull = rangeDaily(db, from, today);
+  const series = mergeLegacy(db, dailyFull, from, today);
   const isActive = (d) => d.claudeMs > 0 || d.prompts > 0 || (d.messages ?? 0) > 0;
 
   let longest = 0;
@@ -202,7 +229,6 @@ export function records(db) {
   let busiest = null;
   let mostPrompts = null;
   let biggestTokens = null;
-  const dailyFull = rangeDaily(db, from, today);
   for (let i = 0; i < series.length; i++) {
     const d = series[i];
     if (isActive(d)) {

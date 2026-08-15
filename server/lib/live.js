@@ -25,6 +25,31 @@ export function createLiveMap(db, { onChange = () => {} } = {}) {
   /** @type {Map<string, {status:string, since:number, updatedAt:number, source:string, cwd:string|null, lastPrompt:string|null, cloud?:boolean, lastFileAt?:number, stalled?:boolean, notification?:string|null}>} */
   const map = new Map();
 
+  // Coalesce broadcasts: every hook event and file change used to rebuild and
+  // serialize the whole snapshot per event, on the thread that serves HTTP.
+  // The FIRST event in a quiet period still emits immediately (the UI must
+  // feel instant); a burst then collapses into one trailing emit that carries
+  // final state. 250ms is imperceptible next to SSE + React batching.
+  const BROADCAST_QUIET_MS = 250;
+  let lastBroadcastAt = 0;
+  /** @type {ReturnType<typeof setTimeout> | null} */
+  let broadcastTimer = null;
+  function broadcast() {
+    if (broadcastTimer) return; // trailing emit already armed
+    const sinceLast = Date.now() - lastBroadcastAt;
+    if (sinceLast >= BROADCAST_QUIET_MS) {
+      lastBroadcastAt = Date.now();
+      onChange(snapshot());
+      return;
+    }
+    broadcastTimer = setTimeout(() => {
+      broadcastTimer = null;
+      lastBroadcastAt = Date.now();
+      onChange(snapshot());
+    }, BROADCAST_QUIET_MS - sinceLast);
+    broadcastTimer.unref?.();
+  }
+
   const decay = setInterval(() => {
     const now = Date.now();
     let changed = false;
@@ -56,7 +81,7 @@ export function createLiveMap(db, { onChange = () => {} } = {}) {
         changed = true;
       }
     }
-    if (changed) onChange(snapshot());
+    if (changed) broadcast();
   }, 15_000);
   decay.unref();
 
@@ -64,7 +89,7 @@ export function createLiveMap(db, { onChange = () => {} } = {}) {
     const cur = map.get(sid) ?? { status: 'idle', since: Date.now(), updatedAt: 0, source: 'hook', cwd: null, lastPrompt: null };
     const next = { ...cur, ...patch, updatedAt: Date.now() };
     map.set(sid, next);
-    onChange(snapshot());
+    broadcast();
   }
 
   /** Called with a parsed hook payload from notify.mjs. */
@@ -97,7 +122,7 @@ export function createLiveMap(db, { onChange = () => {} } = {}) {
         try {
           db.prepare('UPDATE sessions SET ended_at=? WHERE id=? AND ended_at IS NULL').run(Date.now(), sid);
         } catch { /* session may not be ingested yet */ }
-        onChange(snapshot());
+        broadcast();
         break;
       case 'SubagentStop':
         if (map.has(sid)) set(sid, {});
@@ -120,7 +145,7 @@ export function createLiveMap(db, { onChange = () => {} } = {}) {
       // heartbeat, or every hook-driven session would read as stalled
       if (cur && cur.source === 'hook' && now - cur.updatedAt < LIVE_FILE_ACTIVITY_MS) {
         cur.lastFileAt = now;
-        if (cur.stalled) { cur.stalled = false; onChange(snapshot()); }
+        if (cur.stalled) { cur.stalled = false; broadcast(); }
         continue;
       }
       let cloud = cur?.cloud ?? false;
@@ -138,7 +163,19 @@ export function createLiveMap(db, { onChange = () => {} } = {}) {
    * PIDs aggressively, so a liveness probe alone passes for long-dead sessions —
    * also require a recent startedAt and dedupe by sessionId. */
   const REGISTRY_MAX_AGE_MS = 12 * 3600_000;
+  // The registry scan is synchronous fs + a kill(0) probe per file, and every
+  // hook event rebuilds the snapshot that calls it — a burst of hooks was
+  // paying that cost per event, on the thread that serves HTTP. A short TTL
+  // lets a burst reuse one scan; 2.5s is far below the 15s decay cadence.
+  const REGISTRY_TTL_MS = 2_500;
+  let registryCache = { at: 0, value: /** @type {any[]} */ ([]) };
   function liveRegistry() {
+    if (Date.now() - registryCache.at < REGISTRY_TTL_MS) return registryCache.value;
+    const value = scanRegistry();
+    registryCache = { at: Date.now(), value };
+    return value;
+  }
+  function scanRegistry() {
     /** @type {Map<string, any>} */
     const bySession = new Map();
     try {
