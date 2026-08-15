@@ -62,12 +62,17 @@ export function LivePill() {
 
   return (
     <div className="relative">
+      {/* announce state changes; the visible pill re-renders every second for
+          the elapsed timer, so the live region carries a seconds-free string
+          or SRs would announce a countdown */}
+      <span role="status" aria-live="polite" className="sr-only">
+        {label.replace(/ · \d+[hms].*$/, '')}
+      </span>
       <button
         onClick={() => setOpen((o) => !o)}
         onKeyDown={(e) => e.key === 'Escape' && setOpen(false)}
         aria-expanded={open}
         aria-haspopup="true"
-        aria-label="Live sessions"
         className={cn(
           'flex items-center gap-2 rounded-full border border-line bg-surface2 px-3 py-1.5 font-mono text-[12px] tracking-wide',
           tone === 'attention' ? 'border-user/50 text-user' : tone === 'working' ? 'border-claude/30 text-claude' : 'text-mid'
@@ -145,7 +150,7 @@ function SessionRow({ s, now, onOpen }: { s: LiveSession; now: number; onOpen: (
           disabled={killing}
           aria-label="Interrupt session"
           title="Interrupt (kill) this session"
-          className="mt-0.5 hidden shrink-0 rounded border border-line p-1 text-dim hover:border-danger/50 hover:text-danger group-hover:block disabled:opacity-50"
+          className="mt-0.5 shrink-0 rounded border border-line p-1 text-dim opacity-40 transition-opacity hover:border-danger/50 hover:text-danger focus-visible:opacity-100 group-hover:opacity-100 disabled:opacity-30"
         >
           <Square size={9} fill="currentColor" />
         </button>

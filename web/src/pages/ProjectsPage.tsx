@@ -104,7 +104,9 @@ export default function ProjectsPage() {
                         <span className="block truncate text-[14px] text-ink">{g.root.name}</span>
                         <span className="block truncate font-mono text-[11px] text-dim">{g.root.path}</span>
                       </span>
-                      <OpenInButtons projectId={g.root.id} size={12} className="ml-auto opacity-0 transition-opacity group-hover:opacity-100" />
+                      {/* focus-within, not just hover: these buttons take tab
+                          focus, and a focused-but-invisible control is a trap */}
+                      <OpenInButtons projectId={g.root.id} size={12} className="ml-auto opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100" />
                     </Link>
                     <Cell className="text-claude">{fmtDuration(g.claudeMs)}</Cell>
                     <Cell>{fmtCount(g.sessionCount)}</Cell>

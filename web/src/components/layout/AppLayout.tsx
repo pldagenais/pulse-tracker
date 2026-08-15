@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useIsFetching } from '@tanstack/react-query';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router';
 import {
@@ -75,6 +75,18 @@ export function AppLayout() {
 
   const title = TITLES.find(([p]) => location.pathname.startsWith(p))?.[1] ?? 'Dashboard';
   const indexing = ingest && (ingest.phase === 'backfill' || ingest.phase === 'rescan') && ingest.filesTotal > 0;
+
+  // SPA route changes are invisible to a screen reader: the h1 swaps silently
+  // and focus stays wherever it was. Announce the page and land focus on main.
+  const mainRef = useRef<HTMLElement>(null);
+  const firstRoute = useRef(true);
+  useEffect(() => {
+    if (firstRoute.current) {
+      firstRoute.current = false; // initial load announces the document title already
+      return;
+    }
+    mainRef.current?.focus({ preventScroll: true });
+  }, [location.pathname]);
 
   // Global keyboard layer. Single-letter shortcuts never fire while typing.
   useEffect(() => {
@@ -184,8 +196,16 @@ export function AppLayout() {
           </div>
         </header>
         <OfflineBanner />
+        {/* page-change announcement: content changes trigger polite SRs */}
+        <span role="status" aria-live="polite" className="sr-only">
+          {title}
+        </span>
         {indexing && ingest && (
           <div className="border-b border-line bg-surface2 px-5 py-2 print:hidden">
+            {/* announced per 10%, not per file — a firehose would drown everything else */}
+            <span role="status" aria-live="polite" aria-atomic="true" className="sr-only">
+              Indexing {Math.floor((ingest.filesDone / Math.max(ingest.filesTotal, 1)) * 10) * 10} percent
+            </span>
             <div className="flex items-center justify-between font-mono text-[12px] text-mid">
               <span>
                 Indexing your Claude Code history — {ingest.filesDone}/{ingest.filesTotal} files
@@ -196,7 +216,7 @@ export function AppLayout() {
             <ProgressBar value={ingest.filesDone} max={Math.max(ingest.filesTotal, 1)} className="mt-1.5" />
           </div>
         )}
-        <main className="min-h-0 flex-1 overflow-y-auto print:overflow-visible">
+        <main ref={mainRef} tabIndex={-1} className="min-h-0 flex-1 overflow-y-auto outline-none print:overflow-visible">
           <Outlet />
         </main>
       </div>

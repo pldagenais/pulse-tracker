@@ -132,7 +132,7 @@ function Tile({ s, now }: { s: LiveSession; now: number }) {
             onClick={kill}
             aria-label="Interrupt session"
             title="Interrupt (kill)"
-            className="hidden shrink-0 rounded border border-line p-1 text-dim hover:border-danger/50 hover:text-danger group-hover:block"
+            className="shrink-0 rounded border border-line p-1 text-dim opacity-40 transition-opacity hover:border-danger/50 hover:text-danger focus-visible:opacity-100 group-hover:opacity-100"
           >
             <Square size={9} fill="currentColor" />
           </button>

@@ -95,7 +95,9 @@ export function StatCard({
       ) : (
         <div className="microlabel">{label}</div>
       )}
-      <div className="mt-1 font-mono text-[29px] leading-9 font-medium tracking-tight text-ink">
+      {/* aria-live off: live data re-keys this constantly — announcing every
+          tick would be a firehose; the pill's status region carries the signal */}
+      <div aria-live="off" className="mt-1 font-mono text-[29px] leading-9 font-medium tracking-tight text-ink">
         {/* re-keying on the rendered value pops the number when live data changes */}
         <span key={typeof value === 'string' || typeof value === 'number' ? String(value) : undefined} className="stat-pop inline-block">
           {value}
