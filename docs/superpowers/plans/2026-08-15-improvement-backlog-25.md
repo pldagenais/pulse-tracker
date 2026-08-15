@@ -668,9 +668,11 @@ git commit -am "a11y: honour prefers-reduced-motion for the aurora and theme swa
 
 ---
 
-## Batch 7 — New analysis features
+## Batch 7 — New analysis features ✅ SHIPPED 2026-08-15 — **BACKLOG COMPLETE (25/25)**
 
 All four build on `server/lib/stats.js` and the existing `groupBy` plumbing, so they follow the hardening in Batches 1 and 3. `resolveRemote` already maps `/api/stats?groupBy=X` to `insights:X` (`web/src/lib/source.ts:51`), so each new grouping needs only a matching entry in `server/lib/cloud/keys.js` to appear in cloud mode.
+
+**Shipped as one commit.** Verification highlights: MCP sum matches raw attribution rows exactly (4,915); the context curve was verified on the session that built it (2 compactions, peak 997.4K, final matching the live gauge); 30d compaction tax = 6 compactions / 723K rebuild tokens; focus = 108 switches, longest run 26h26m. Notes: `context` is **optional** in `SessionDetail` — cloud session snapshots mirrored before this never re-mirror (cursor-based), so old sessions arrive without it and the card is simply absent. Tasks 22/24 share one drop detector (`COMPACTION_DROP_RATIO`, epoch-reset running max). The plan's "longest block ≤ day wallMs" check was dropped as written — blocks legitimately span days; the real invariant (switches = 0 on a single-project range) holds.
 
 ### Task 22: Surface MCP server usage
 
