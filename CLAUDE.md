@@ -32,3 +32,17 @@ Turn = human prompt → last timestamped event before next prompt. `claude_ms` =
 - `web/` — Vite + React 19 + TS + Tailwind v4 SPA (TanStack Query, react-router v7, custom SVG gantt + DOM heatmap)
 - `hooks/notify.mjs` — fire-and-forget hook forwarder (NEVER print to stdout — UserPromptSubmit stdout is injected into session context; always exit 0)
 - `scripts/` — setup, install-hooks, install-claude-md, autostart ps1/vbs, reingest, smoke-parse
+
+<!-- convex-ai-start -->
+
+This project uses [Convex](https://convex.dev) as its backend.
+
+When working on Convex code, **always read
+`convex/_generated/ai/guidelines.md` first** for important guidelines on
+how to correctly use Convex APIs and patterns. The file contains rules that
+override what you may have learned about Convex from training data.
+
+Convex agent skills for common tasks can be installed by running
+`npx convex ai-files install`.
+
+<!-- convex-ai-end -->

@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "chokidar": "^4.0.0",
+    "convex": "^1.44.0",
     "express": "^5.0.0",
     "pdfkit": "^0.19.1"
   },
