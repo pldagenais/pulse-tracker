@@ -1,6 +1,9 @@
 import { useEffect, useRef } from 'react';
 import { useLive } from '../../lib/live';
 import { fmtDuration } from '../../lib/format';
+// Non-reactive t/tf on purpose: notifications fire at event time, so the
+// locale is read when the toast is built, not at render.
+import { t, tf } from '../../lib/i18n';
 import type { LiveSession } from '../../lib/types';
 
 export const NOTIFY_KEY = 'pulse-notify';
@@ -34,22 +37,22 @@ export function useCompletionNotifier() {
         if (p.status === 'working' && !(now && now.status === 'working') && now?.status !== 'needs-you') {
           const ranMs = Date.now() - p.since;
           if (ranMs >= MIN_RUN_MS) {
-            notify(`${p.projectName ?? 'Claude'} finished`, `${p.title ?? p.lastPrompt ?? 'Session complete'} · ${fmtDuration(ranMs)}`);
+            notify(tf('notify.finished', { project: p.projectName ?? 'Claude' }), `${p.title ?? p.lastPrompt ?? t('notify.sessionComplete')} · ${fmtDuration(ranMs)}`);
           }
         }
         // session started waiting on the user (permission prompt etc.)
         if (now && now.status === 'needs-you' && p.status !== 'needs-you') {
-          notify(`${now.projectName ?? 'Claude'} needs you`, now.notification ?? 'Claude is waiting for your input', false);
+          notify(tf('notify.needsYou', { project: now.projectName ?? 'Claude' }), now.notification ?? t('notify.waitingBody'), false);
         }
         // session looks stalled
         if (now && now.stalled && !p.stalled) {
-          notify(`${now.projectName ?? 'Claude'} may be stalled`, 'Working with no transcript activity for 5+ minutes — check the terminal.');
+          notify(tf('notify.mayBeStalled', { project: now.projectName ?? 'Claude' }), t('notify.stalledBody'));
         }
       }
       // brand-new sessions that appear already needing attention
       for (const [sid, s] of cur) {
         if (!prev.current.has(sid) && s.status === 'needs-you') {
-          notify(`${s.projectName ?? 'Claude'} needs you`, s.notification ?? 'Claude is waiting for your input', false);
+          notify(tf('notify.needsYou', { project: s.projectName ?? 'Claude' }), s.notification ?? t('notify.waitingBody'), false);
         }
       }
     }

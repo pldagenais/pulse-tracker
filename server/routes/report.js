@@ -228,7 +228,8 @@ export function mountReport(app, ctx) {
     const projectId = Number(req.params.id);
     const p = /** @type {any} */ (db.prepare('SELECT id, path FROM projects WHERE id=?').get(projectId));
     if (!p) return bad(res, 'project not found', 404);
-    const key = `changes|${p.path}`;
+    const lang = req.body?.lang === 'fr' ? 'fr' : 'en';
+    const key = `changes|${p.path}|${lang}`;
     try {
       const to = todayKey();
       const from = addDays(to, -13);
@@ -241,8 +242,9 @@ export function mountReport(app, ctx) {
           .all(projectId, projectId)
           .map((r) => /** @type {any} */ (r).id);
         const input = buildAiInput(db, report, ids);
-        log.info(`changes-summary: project ${projectId} (${input.length} chars)`);
-        job = runClaude(CHANGES_INSTRUCTIONS + input).then((markdown) => {
+        log.info(`changes-summary: project ${projectId} (${input.length} chars, ${lang})`);
+        const langLine = lang === 'fr' ? 'Écris la réponse entièrement en français.\n' : '';
+        job = runClaude(CHANGES_INSTRUCTIONS + langLine + input).then((markdown) => {
           db.prepare(
             `INSERT INTO project_summaries(project_path, markdown, created_at) VALUES(?,?,?)
              ON CONFLICT(project_path) DO UPDATE SET markdown=excluded.markdown, created_at=excluded.created_at`
@@ -279,8 +281,9 @@ export function mountReport(app, ctx) {
           .all(projectId, projectId)
           .map((r) => r.id);
         const input = buildAiInput(db, report, ids);
+        const summaryLang = req.body?.lang === 'fr' ? 'Écris la réponse entièrement en français (les titres de catégories aussi).\n' : '';
         log.info(`report: summarizing project ${projectId} ${from}..${to} (${input.length} chars)`);
-        job = runClaude(SUMMARIZE_INSTRUCTIONS + input).then((markdown) => {
+        job = runClaude(SUMMARIZE_INSTRUCTIONS + summaryLang + input).then((markdown) => {
           db.prepare(
             'INSERT INTO reports(project_id, period_from, period_to, input_hash, markdown, created_at) VALUES(?,?,?,?,?,?)'
           ).run(projectId, from, to, report.inputHash, markdown, Date.now());

@@ -9,9 +9,11 @@ import { sessionQuery, sessionsQuery } from '../lib/queries';
 import type { SessionDetail } from '../lib/types';
 import { fmtCost, fmtCount, fmtDuration, fmtModel, fmtRelative, fmtTokens } from '../lib/format';
 import { Card, EmptyState, Skeleton } from '../components/ui';
+import { useT } from '../lib/i18n';
 import { cn } from '../lib/cn';
 
 export default function ComparePage() {
+  const { t, tf } = useT();
   const [params, setParams] = useSearchParams();
   const a = params.get('a');
   const b = params.get('b');
@@ -33,10 +35,10 @@ export default function ComparePage() {
     <select
       value={value ?? ''}
       onChange={(e) => setSide(side, e.target.value)}
-      aria-label={`Session ${side.toUpperCase()}`}
+      aria-label={tf('projects.sessionSide', { side: side.toUpperCase() })}
       className="min-w-0 max-w-full flex-1 rounded-md border border-line bg-surface px-3 py-2 text-[12px] text-ink outline-none"
     >
-      <option value="">— pick session {side.toUpperCase()} —</option>
+      <option value="">{tf('projects.pickSession', { side: side.toUpperCase() })}</option>
       {options.map((s) => (
         <option key={s.id} value={s.id}>
           {(s.title ?? s.firstPrompt ?? s.id).slice(0, 70)} · {s.projectName} · {fmtRelative(s.startedAt ?? 0)}
@@ -53,7 +55,7 @@ export default function ComparePage() {
         {picker('b', b)}
       </div>
 
-      {(!a || !b) && <EmptyState title="Pick two sessions to compare" hint="Tip: A/B runs from the Run page land here automatically." />}
+      {(!a || !b) && <EmptyState title={t('projects.pickTwo')} hint={t('projects.pickTwoHint')} />}
 
       {a && b && (qa.isLoading || qb.isLoading) && <Skeleton className="h-64" />}
 
@@ -63,24 +65,25 @@ export default function ComparePage() {
 }
 
 function CompareGrid({ A, B }: { A: SessionDetail; B: SessionDetail }) {
+  const { t } = useT();
   // A session with unpriced tokens reads artificially cheap — painting it
   // green as the "winner" would present missing data as a victory.
   const costComparable = !A.session.hasUnpricedTokens && !B.session.hasUnpricedTokens;
   const rows: { label: string; fmt: (d: SessionDetail) => string; num: (d: SessionDetail) => number; lowerBetter?: boolean; noWinner?: boolean }[] = [
-    { label: 'claude working', fmt: (d) => fmtDuration(d.session.claudeMs), num: (d) => d.session.claudeMs, lowerBetter: true },
+    { label: t('projects.claudeWorking'), fmt: (d) => fmtDuration(d.session.claudeMs), num: (d) => d.session.claudeMs, lowerBetter: true },
     {
-      label: 'est. cost',
+      label: t('projects.estCost'),
       fmt: (d) => `${fmtCost(d.session.estCostUsd ?? 0)}${d.session.hasUnpricedTokens ? '*' : ''}`,
       num: (d) => d.session.estCostUsd ?? 0,
       lowerBetter: true,
       noWinner: !costComparable,
     },
-    { label: 'prompts', fmt: (d) => fmtCount(d.session.promptCount), num: (d) => d.session.promptCount },
-    { label: 'turns', fmt: (d) => fmtCount(d.session.turnCount), num: (d) => d.session.turnCount },
-    { label: 'tool calls', fmt: (d) => fmtCount(d.session.toolUseCount), num: (d) => d.session.toolUseCount },
-    { label: 'output tokens', fmt: (d) => fmtTokens(d.session.outputTokens), num: (d) => d.session.outputTokens },
-    { label: 'subagents', fmt: (d) => fmtCount(d.session.subagentCount), num: (d) => d.session.subagentCount },
-    { label: 'commits', fmt: (d) => fmtCount(d.commits.length), num: (d) => d.commits.length },
+    { label: t('projects.prompts'), fmt: (d) => fmtCount(d.session.promptCount), num: (d) => d.session.promptCount },
+    { label: t('projects.turns'), fmt: (d) => fmtCount(d.session.turnCount), num: (d) => d.session.turnCount },
+    { label: t('projects.toolCalls'), fmt: (d) => fmtCount(d.session.toolUseCount), num: (d) => d.session.toolUseCount },
+    { label: t('projects.outputTokens'), fmt: (d) => fmtTokens(d.session.outputTokens), num: (d) => d.session.outputTokens },
+    { label: t('projects.subagents'), fmt: (d) => fmtCount(d.session.subagentCount), num: (d) => d.session.subagentCount },
+    { label: t('projects.commits'), fmt: (d) => fmtCount(d.commits.length), num: (d) => d.commits.length },
   ];
 
   const head = (d: SessionDetail) => (
@@ -89,16 +92,16 @@ function CompareGrid({ A, B }: { A: SessionDetail; B: SessionDetail }) {
         {d.session.title ?? d.session.lastPrompt ?? d.session.id}
       </Link>
       <div className="mt-0.5 truncate font-mono text-[11px] text-dim">
-        {d.session.projectName} · {d.session.models.map(fmtModel).join(', ') || 'no model recorded'}
+        {d.session.projectName} · {d.session.models.map(fmtModel).join(', ') || t('projects.noModel')}
       </div>
     </div>
   );
 
   return (
-    <Card title="comparison" bodyClassName="p-0">
+    <Card title={t('projects.comparison')} bodyClassName="p-0">
       <div className="grid grid-cols-[minmax(0,1fr)_130px_minmax(0,1fr)] items-center gap-x-3 border-b border-line px-4 py-3">
         {head(A)}
-        <span className="text-center font-mono text-[10px] uppercase tracking-wider text-dim">vs</span>
+        <span className="text-center font-mono text-[10px] uppercase tracking-wider text-dim">{t('projects.vs')}</span>
         {head(B)}
       </div>
       {rows.map((r) => {
@@ -114,7 +117,7 @@ function CompareGrid({ A, B }: { A: SessionDetail; B: SessionDetail }) {
         );
       })}
       <div className="px-4 py-2 font-mono text-[11px] text-dim">
-        green = better (faster/cheaper for time & cost, more for output). Judge quality yourself — open each session for the full detail.
+        {t('projects.compareFootnote')}
       </div>
     </Card>
   );

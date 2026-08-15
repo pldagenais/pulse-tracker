@@ -8,6 +8,7 @@ import { fmtCount, fmtRelative, plural } from '../lib/format';
 import { Badge, Card, Skeleton } from '../components/ui';
 import { RoutinesCard } from '../components/manage/RoutinesCard';
 import { MemoryCard } from '../components/manage/MemoryCard';
+import { useT } from '../lib/i18n';
 import { cn } from '../lib/cn';
 
 export default function ManagePage() {
@@ -28,6 +29,7 @@ export default function ManagePage() {
 }
 
 function McpCard() {
+  const { t, tf } = useT();
   const q = useQuery(mcpServersQuery());
   // 90d usage from event attribution: which of these servers earn their
   // context cost. Joined by name; "never used" is the interesting signal.
@@ -56,7 +58,7 @@ function McpCard() {
   };
 
   const remove = async (n: string) => {
-    if (!window.confirm(`Remove MCP server "${n}" from your user config?\n\nEvery Claude Code session loses access to it until re-added.`)) return;
+    if (!window.confirm(tf('run.mcpConfirmRemove', { name: n }))) return;
     setBusy(n);
     setErr(null);
     try {
@@ -71,14 +73,14 @@ function McpCard() {
 
   return (
     <Card
-      title={`mcp servers${q.data ? ` · ${q.data.servers.length}` : ''}`}
+      title={`${t('run.mcpTitle')}${q.data ? ` · ${q.data.servers.length}` : ''}`}
       action={
         <span className="flex items-center gap-2">
-          {q.data && <span className="font-mono text-[11px] text-dim">checked {fmtRelative(q.data.checkedAt)}</span>}
+          {q.data && <span className="font-mono text-[11px] text-dim">{tf('run.checkedWhen', { when: fmtRelative(q.data.checkedAt) })}</span>}
           <button
             onClick={() => { queryClient.removeQueries({ queryKey: ['mcp-servers'] }); q.refetch(); }}
-            aria-label="Re-check server health"
-            title="Re-check health (runs claude mcp list — can take a minute)"
+            aria-label={t('run.recheckAria')}
+            title={t('run.recheckTitle')}
             className="rounded border border-line p-1 text-dim hover:text-ink"
           >
             <RefreshCw size={11} className={cn(q.isFetching && 'animate-spin')} />
@@ -89,7 +91,7 @@ function McpCard() {
     >
       {q.isLoading && (
         <div className="px-4 py-3">
-          <div className="mb-2 font-mono text-[12px] text-dim">health-checking every configured server — first load can take up to a minute…</div>
+          <div className="mb-2 font-mono text-[12px] text-dim">{t('run.mcpChecking')}</div>
           <Skeleton className="h-24" />
         </div>
       )}
@@ -103,15 +105,15 @@ function McpCard() {
           <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-dim" title={s.command}>{s.command}</span>
           <span
             className={cn('shrink-0 font-mono text-[11px]', u ? 'text-mid' : 'text-dim')}
-            title={u ? `${u.calls} calls across ${u.sessions} sessions in the last 90 days` : 'No recorded tool calls in the last 90 days — this server still costs context in every request'}
+            title={u ? tf('run.mcpUsageTitle', { calls: u.calls, sessions: u.sessions }) : t('run.mcpNeverTitle')}
           >
-            {u ? `${fmtCount(u.calls)} calls · last ${fmtRelative(u.lastUsedAt)}` : 'never used in 90d'}
+            {u ? tf('run.mcpUsage', { calls: fmtCount(u.calls), when: fmtRelative(u.lastUsedAt) }) : t('run.mcpNever')}
           </span>
-          <span className={cn('shrink-0 font-mono text-[11px]', s.healthy ? 'text-ok' : 'text-danger')}>{s.status || (s.healthy ? 'connected' : 'failed')}</span>
+          <span className={cn('shrink-0 font-mono text-[11px]', s.healthy ? 'text-ok' : 'text-danger')}>{s.status || (s.healthy ? t('run.connected') : t('run.failedStatus'))}</span>
           <button
             onClick={() => remove(s.name)}
             disabled={busy === s.name}
-            aria-label={`Remove ${s.name}`}
+            aria-label={tf('run.removeNameAria', { name: s.name })}
             className="shrink-0 rounded border border-line p-1 text-dim hover:border-danger/50 hover:text-danger disabled:opacity-50"
           >
             <Trash2 size={11} />
@@ -124,13 +126,13 @@ function McpCard() {
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="name"
+          placeholder={t('run.namePlaceholder')}
           className="w-32 rounded border border-line bg-surface2 px-2 py-1.5 font-mono text-xs text-ink outline-none placeholder:text-dim"
         />
         <input
           value={command}
           onChange={(e) => setCommand(e.target.value)}
-          placeholder="command — e.g. npx -y @modelcontextprotocol/server-filesystem C:\Data"
+          placeholder={t('run.commandPlaceholder')}
           className="min-w-64 flex-1 rounded border border-line bg-surface2 px-2 py-1.5 font-mono text-xs text-ink outline-none placeholder:text-dim"
         />
         <button
@@ -138,7 +140,7 @@ function McpCard() {
           disabled={busy === 'add' || !name.trim() || !command.trim()}
           className="flex items-center gap-1.5 rounded-md border border-claude/50 bg-claude/10 px-3 py-1.5 font-mono text-[11px] uppercase tracking-wider text-claude hover:bg-claude/20 disabled:opacity-40"
         >
-          <Plus size={11} /> {busy === 'add' ? 'adding…' : 'add (user scope)'}
+          <Plus size={11} /> {busy === 'add' ? t('run.adding') : t('run.addUserScope')}
         </button>
         {err && <span className="w-full font-mono text-[11px] text-danger">{err}</span>}
       </div>
@@ -147,10 +149,11 @@ function McpCard() {
 }
 
 function SkillsCard() {
+  const { t } = useT();
   const q = useQuery(manageInventoryQuery());
   const skills = q.data?.skills ?? [];
   return (
-    <Card title={`custom skills · ${skills.length}`} bodyClassName="p-0">
+    <Card title={`${t('run.skillsTitle')} · ${skills.length}`} bodyClassName="p-0">
       <div className="max-h-64 overflow-y-auto">
         {skills.map((s) => (
           <div key={s.dir} className="border-b border-line/60 px-4 py-2 last:border-0">
@@ -158,17 +161,18 @@ function SkillsCard() {
             {s.description && <div className="mt-0.5 line-clamp-2 text-[12px] leading-4 text-dim">{s.description}</div>}
           </div>
         ))}
-        {!q.isLoading && skills.length === 0 && <div className="px-4 py-4 text-xs text-dim">No custom skills in ~/.claude/skills.</div>}
+        {!q.isLoading && skills.length === 0 && <div className="px-4 py-4 text-xs text-dim">{t('run.skillsEmpty')}</div>}
       </div>
     </Card>
   );
 }
 
 function AgentsCard() {
+  const { t } = useT();
   const q = useQuery(manageInventoryQuery());
   const agents = q.data?.agents ?? [];
   return (
-    <Card title={`custom agents · ${agents.length}`} bodyClassName="p-0">
+    <Card title={`${t('run.agentsTitle')} · ${agents.length}`} bodyClassName="p-0">
       <div className="max-h-64 overflow-y-auto">
         {agents.map((a) => (
           <div key={a.file} className="border-b border-line/60 px-4 py-2 last:border-0">
@@ -176,24 +180,25 @@ function AgentsCard() {
             {a.description && <div className="mt-0.5 line-clamp-2 text-[12px] leading-4 text-dim">{a.description}</div>}
           </div>
         ))}
-        {!q.isLoading && agents.length === 0 && <div className="px-4 py-4 text-xs text-dim">No custom agents in ~/.claude/agents.</div>}
+        {!q.isLoading && agents.length === 0 && <div className="px-4 py-4 text-xs text-dim">{t('run.agentsEmpty')}</div>}
       </div>
     </Card>
   );
 }
 
 function PluginsCard() {
+  const { t } = useT();
   const q = useQuery(manageInventoryQuery());
   const plugins = q.data?.plugins ?? [];
   return (
-    <Card title={`installed plugins · ${plugins.length}`} bodyClassName="p-4">
+    <Card title={`${t('run.pluginsTitle')} · ${plugins.length}`} bodyClassName="p-4">
       <div className="flex flex-wrap gap-1.5">
         {plugins.map((p) => (
           <Badge key={`${p.marketplace}/${p.name}`} className="flex items-center gap-1">
             <Package size={9} /> {p.name}
           </Badge>
         ))}
-        {!q.isLoading && plugins.length === 0 && <span className="text-xs text-dim">No plugins installed.</span>}
+        {!q.isLoading && plugins.length === 0 && <span className="text-xs text-dim">{t('run.pluginsEmpty')}</span>}
       </div>
       {plugins.length > 0 && (
         <div className="mt-2 font-mono text-[11px] text-dim">{plural(new Set(plugins.map((p) => p.marketplace)).size, 'marketplace')}</div>

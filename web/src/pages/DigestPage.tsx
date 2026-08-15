@@ -6,6 +6,7 @@ import type { DayStat, ProjectSplitRow } from '../lib/types';
 import { todayKey, addDays, weekOf, dayKeyOf } from '../lib/time';
 import { fmtCost, fmtCount, fmtDay, fmtDuration, fmtRelative, plural } from '../lib/format';
 import { MODE } from '../lib/source';
+import { useT } from '../lib/i18n';
 import { Card, StatCard, EmptyState, Skeleton, SkeletonRows } from '../components/ui';
 import { SessionListItem } from '../components/SessionListItem';
 import { projectColor, CLAUDE_COLOR } from '../lib/colors';
@@ -15,6 +16,7 @@ export default function DigestPage() {
   const [params, setParams] = useSearchParams();
   const date = params.get('date') ?? todayKey();
   const days = weekOf(date);
+  const { t, tf } = useT();
 
   const daily = useQuery(dailyStatsQuery(days[0], days[6]));
   const projects = useQuery(projectStatsQuery(days[0], days[6]));
@@ -47,16 +49,16 @@ export default function DigestPage() {
             to={`/timeline/week?date=${date}`}
             className="font-mono text-[11px] uppercase tracking-wider text-dim hover:text-claude"
           >
-            ← week view
+            {t('dashboard.weekView')}
           </Link>
           <h1 className="font-display text-xl text-ink">
-            Week of {fmtDay(days[0])} – {fmtDay(days[6])}
+            {tf('dashboard.weekOf', { from: fmtDay(days[0]), to: fmtDay(days[6]) })}
           </h1>
         </div>
         <div className="flex items-center gap-1.5">
           <button
             onClick={() => setDate(addDays(date, -7))}
-            aria-label="Previous week"
+            aria-label={t('dashboard.prevWeek')}
             className="rounded border border-line p-1.5 text-mid hover:bg-surface2 hover:text-ink"
           >
             <ChevronLeft size={14} />
@@ -64,7 +66,7 @@ export default function DigestPage() {
           <button
             onClick={() => setDate(addDays(date, 7))}
             disabled={nextDisabled}
-            aria-label="Next week"
+            aria-label={t('dashboard.nextWeek')}
             className="rounded border border-line p-1.5 text-mid enabled:hover:bg-surface2 enabled:hover:text-ink disabled:opacity-30"
           >
             <ChevronRight size={14} />
@@ -74,7 +76,7 @@ export default function DigestPage() {
             className="ml-1 flex items-center gap-1.5 rounded border border-line px-2.5 py-1.5 font-mono text-[11px] uppercase tracking-wider text-mid hover:bg-surface2 hover:text-ink"
           >
             <Printer size={12} />
-            print
+            {t('dashboard.print')}
           </button>
         </div>
       </div>
@@ -85,32 +87,32 @@ export default function DigestPage() {
           Array.from({ length: 5 }, (_, i) => <Skeleton key={i} className="h-[86px]" />)
         ) : (
           <>
-            <StatCard label="claude working" value={fmtDuration(sum((r) => r.claudeMs))} accent="claude" />
-            <StatCard label="you active" value={fmtDuration(sum((r) => r.userActiveMs))} accent="user" />
-            <StatCard label="prompts" value={fmtCount(sum((r) => r.prompts))} />
+            <StatCard label={t('dashboard.claudeWorking')} value={fmtDuration(sum((r) => r.claudeMs))} accent="claude" />
+            <StatCard label={t('dashboard.youActive')} value={fmtDuration(sum((r) => r.userActiveMs))} accent="user" />
+            <StatCard label={t('dashboard.prompts')} value={fmtCount(sum((r) => r.prompts))} />
             {/* distinct count for the range — summing per-day counts double
                 counts any session active on more than one day. Cloud's list
                 caps total at the page size, so it falls back to the sum. */}
             <StatCard
-              label="sessions"
+              label={t('dashboard.sessions')}
               value={fmtCount(MODE === 'local' ? top.data?.total ?? sum((r) => r.sessions) : sum((r) => r.sessions))}
             />
-            <StatCard label="est. cost" value={fmtCost(sum((r) => r.estCostUsd))} />
+            <StatCard label={t('dashboard.estCost')} value={fmtCost(sum((r) => r.estCostUsd))} />
           </>
         )}
       </div>
 
-      <Card title="claude time by day" bodyClassName="p-4">
+      <Card title={t('dashboard.claudeTimeByDay')} bodyClassName="p-4">
         {daily.isLoading ? <Skeleton className="h-28" /> : <DayBars days={days} rows={rows} />}
       </Card>
 
       {focus.data && focus.data.switches > 0 && (
         <div className="glass rounded-xl px-4 py-2.5 font-mono text-[12px] text-mid">
-          <span className="text-user">{focus.data.switches}</span> project switches across{' '}
-          <span className="text-ink">{focus.data.projectsTouched}</span> projects this week
+          <span className="text-user">{focus.data.switches}</span> {t('dashboard.focusSwitchesMid')}{' '}
+          <span className="text-ink">{focus.data.projectsTouched}</span> {t('dashboard.focusSwitchesEnd')}
           {focus.data.longestBlock && (
             <>
-              {' '}· longest focus run <span className="text-claude">{fmtDuration(focus.data.longestBlock.ms)}</span> on{' '}
+              {' '}· {t('dashboard.focusLongest')} <span className="text-claude">{fmtDuration(focus.data.longestBlock.ms)}</span> {t('dashboard.focusOn')}{' '}
               {focus.data.longestBlock.project}
             </>
           )}
@@ -118,23 +120,23 @@ export default function DigestPage() {
       )}
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <Card title="by project" bodyClassName="p-3">
+        <Card title={t('dashboard.byProject')} bodyClassName="p-3">
           {projects.isLoading && <SkeletonRows n={5} />}
-          {projects.data && projects.data.rows.length === 0 && <EmptyState title="No project activity this week" />}
+          {projects.data && projects.data.rows.length === 0 && <EmptyState title={t('dashboard.noProjectActivity')} />}
           {projects.data && projects.data.rows.length > 0 && <ProjectList rows={projects.data.rows} />}
         </Card>
 
-        <Card title="top sessions" bodyClassName="p-1.5">
+        <Card title={t('dashboard.topSessions')} bodyClassName="p-1.5">
           {top.isLoading && <SkeletonRows n={6} />}
-          {top.data?.rows.length === 0 && <EmptyState title="No sessions this week" />}
+          {top.data?.rows.length === 0 && <EmptyState title={t('dashboard.noSessionsWeek')} />}
           {top.data?.rows.map((s) => <SessionListItem key={s.id} s={s} />)}
         </Card>
       </div>
 
-      <Card title="journal" bodyClassName="p-2">
+      <Card title={t('dashboard.journal')} bodyClassName="p-2">
         {journal.isLoading && <SkeletonRows n={4} />}
         {journal.data && journalEntries.length === 0 && (
-          <EmptyState title="No journal entries this week" hint="Claude logs a one-liner here after finishing substantive work." />
+          <EmptyState title={t('dashboard.noJournalWeek')} hint={t('dashboard.journalWeekHint')} />
         )}
         {journalEntries.map((j) => (
           <div key={j.id} className="border-b border-line/60 px-2 py-2 last:border-0">

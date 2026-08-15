@@ -1,4 +1,21 @@
-const nf = new Intl.NumberFormat('en-US');
+import { getLocale } from './i18n';
+
+/* Locale-dependent formatters, rebuilt lazily when the locale flips. The
+ * components using them re-render on toggle (they subscribe via useT), so a
+ * lazy module-level cache is enough — no reactivity needed here. */
+let fmtsFor: 'en' | 'fr' | null = null;
+let nf = new Intl.NumberFormat('en-US');
+let dayFmt: Intl.DateTimeFormat;
+let dayFullFmt: Intl.DateTimeFormat;
+function ensureFmts() {
+  const loc = getLocale();
+  if (loc === fmtsFor) return;
+  fmtsFor = loc;
+  const tag = loc === 'fr' ? 'fr-CA' : 'en-US';
+  nf = new Intl.NumberFormat(tag);
+  dayFmt = new Intl.DateTimeFormat(tag, { weekday: 'short', month: 'short', day: 'numeric' });
+  dayFullFmt = new Intl.DateTimeFormat(tag, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+}
 
 /** 2h 14m · 14m · 42s · — */
 export function fmtDuration(ms: number | null | undefined): string {
@@ -48,11 +65,29 @@ export function fmtCost(usd: number | null | undefined): string {
 }
 
 export function fmtCount(n: number | null | undefined): string {
+  ensureFmts();
   return nf.format(n ?? 0);
 }
 
-/** "1 prompt" / "3 prompts" — the app never writes "(s)". */
+/**
+ * "1 prompt" / "3 prompts" — the app never writes "(s)". Words are passed in
+ * English; the FR table covers the app's countable nouns (French pluralizes
+ * with a plain s for all of them, so unknown words degrade gracefully).
+ */
+const FR_WORDS: Record<string, string> = {
+  prompt: 'prompt', turn: 'tour', session: 'session', 'tool call': 'appel d’outil',
+  subagent: 'sous-agent', file: 'fichier', client: 'client', commit: 'commit',
+  'bad line': 'ligne invalide', run: 'exécution', day: 'jour', compaction: 'compaction',
+  project: 'projet', switch: 'changement', entry: 'entrée', model: 'modèle',
+};
 export function plural(n: number, word: string): string {
+  ensureFmts();
+  if (getLocale() === 'fr') {
+    const w = FR_WORDS[word] ?? word;
+    // French: no plural s on counts of 1 and 0 ("0 tour"); "appel d'outil" -> "appels d'outil"
+    const pluralized = n >= 2 ? w.replace(/^(\S+)/, '$1s').replace('appels d’outils', 'appels d’outil') : w;
+    return `${nf.format(n)} ${pluralized}`;
+  }
   return `${nf.format(n)} ${word}${n === 1 ? '' : 's'}`;
 }
 
@@ -62,16 +97,15 @@ export function fmtClock(ts: number): string {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
-const DAY_FMT = new Intl.DateTimeFormat('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-const DAY_FULL_FMT = new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
-
-/** Thu, Aug 14 (from a YYYY-MM-DD key or epoch ms) */
+/** Thu, Aug 14 / jeu. 14 août (from a YYYY-MM-DD key or epoch ms) */
 export function fmtDay(day: string | number): string {
-  return DAY_FMT.format(toDate(day));
+  ensureFmts();
+  return dayFmt.format(toDate(day));
 }
 
 export function fmtDayFull(day: string | number): string {
-  return DAY_FULL_FMT.format(toDate(day));
+  ensureFmts();
+  return dayFullFmt.format(toDate(day));
 }
 
 function toDate(day: string | number): Date {
@@ -80,13 +114,20 @@ function toDate(day: string | number): Date {
   return new Date(y, m - 1, d);
 }
 
-/** 23m ago · 3h ago · Thu, Aug 14 */
+/** 23m ago · 3h ago · Thu, Aug 14 (fr: il y a 23 min · jeu. 14 août) */
 export function fmtRelative(ts: number | null | undefined): string {
   if (!ts) return '—';
   const diff = Date.now() - ts;
-  if (diff < 60_000) return 'just now';
-  if (diff < 3600_000) return `${Math.floor(diff / 60_000)}m ago`;
-  if (diff < 24 * 3600_000) return `${Math.floor(diff / 3600_000)}h ago`;
+  const fr = getLocale() === 'fr';
+  if (diff < 60_000) return fr ? 'à l’instant' : 'just now';
+  if (diff < 3600_000) {
+    const m = Math.floor(diff / 60_000);
+    return fr ? `il y a ${m} min` : `${m}m ago`;
+  }
+  if (diff < 24 * 3600_000) {
+    const h = Math.floor(diff / 3600_000);
+    return fr ? `il y a ${h} h` : `${h}h ago`;
+  }
   return fmtDay(ts);
 }
 

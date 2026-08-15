@@ -7,6 +7,7 @@ import { api, qs } from '../lib/api';
 import { fmtCost, fmtDay, fmtTokens, plural } from '../lib/format';
 import { modelColor } from '../lib/colors';
 import { Skeleton } from './ui';
+import { useT } from '../lib/i18n';
 
 interface CostExplainData {
   date: string;
@@ -25,23 +26,24 @@ const costExplainQuery = (date: string) =>
   });
 
 export function CostExplainModal({ date, onClose }: { date: string; onClose: () => void }) {
+  const { t, tf } = useT();
   const q = useQuery(costExplainQuery(date));
   const d = q.data;
   const maxCost = Math.max(...(d?.sessions.map((s) => s.costUsd) ?? [1]), 0.01);
 
   return (
-    <div className="fixed inset-0 z-50" role="dialog" aria-label="Cost breakdown">
+    <div className="fixed inset-0 z-50" role="dialog" aria-label={t('cost.aria')}>
       <div className="absolute inset-0 bg-black/60" onClick={onClose} />
       <div className="glass-strong drawer-in absolute left-1/2 top-16 max-h-[80vh] w-[640px] max-w-[94vw] -translate-x-1/2 overflow-y-auto rounded-xl p-5">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <div className="microlabel">why was this day expensive?</div>
+            <div className="microlabel">{t('cost.title')}</div>
             <div className="mt-0.5 font-display text-lg font-medium text-ink">
               {fmtDay(date)} — {d ? fmtCost(d.totalUsd) : '…'}
-              {d && d.medianUsd > 0 && <span className="ml-2 font-mono text-[12px] text-dim">14-day median {fmtCost(d.medianUsd)}</span>}
+              {d && d.medianUsd > 0 && <span className="ml-2 font-mono text-[12px] text-dim">{tf('cost.median', { v: fmtCost(d.medianUsd) })}</span>}
             </div>
           </div>
-          <button onClick={onClose} aria-label="Close" className="rounded p-1 text-dim hover:text-ink"><X size={15} /></button>
+          <button onClick={onClose} aria-label={t('cost.close')} className="rounded p-1 text-dim hover:text-ink"><X size={15} /></button>
         </div>
 
         {!d && <Skeleton className="mt-4 h-40" />}
@@ -58,7 +60,7 @@ export function CostExplainModal({ date, onClose }: { date: string; onClose: () 
               </ul>
             )}
 
-            <div className="microlabel mt-4 mb-1.5">sessions by cost</div>
+            <div className="microlabel mt-4 mb-1.5">{t('cost.byCost')}</div>
             <div className="space-y-1">
               {d.sessions.map((s) => (
                 <Link
@@ -75,23 +77,23 @@ export function CostExplainModal({ date, onClose }: { date: string; onClose: () 
                     <div className="h-full rounded-full bg-user/70" style={{ width: `${Math.max((s.costUsd / maxCost) * 100, 1.5)}%` }} />
                   </div>
                   <div className="mt-0.5 font-mono text-[10px] text-dim">
-                    {s.project} · {plural(s.turns, 'turn')} · {fmtTokens(s.outputTokens)} out{s.subagents ? ` · ${plural(s.subagents, 'subagent')}` : ''}
+                    {s.project} · {plural(s.turns, 'turn')} · {tf('cost.tokensOut', { tok: fmtTokens(s.outputTokens) })}{s.subagents ? ` · ${plural(s.subagents, 'subagent')}` : ''}
                   </div>
                 </Link>
               ))}
-              {d.sessions.length === 0 && <div className="text-xs text-dim">No recorded turns this day.</div>}
+              {d.sessions.length === 0 && <div className="text-xs text-dim">{t('cost.noTurns')}</div>}
             </div>
 
             {d.models.length > 0 && (
               <>
-                <div className="microlabel mt-4 mb-1.5">model mix & cache economics</div>
+                <div className="microlabel mt-4 mb-1.5">{t('cost.modelMix')}</div>
                 <table className="w-full font-mono text-[12px]">
                   <thead>
                     <tr className="text-left text-[10px] uppercase tracking-wider text-dim">
-                      <th className="py-1 font-normal">model</th>
-                      <th className="py-1 text-right font-normal">out</th>
-                      <th className="py-1 text-right font-normal">cache read</th>
-                      <th className="py-1 text-right font-normal">cache write</th>
+                      <th className="py-1 font-normal">{t('cost.model')}</th>
+                      <th className="py-1 text-right font-normal">{t('cost.out')}</th>
+                      <th className="py-1 text-right font-normal">{t('cost.cacheRead')}</th>
+                      <th className="py-1 text-right font-normal">{t('cost.cacheWrite')}</th>
                     </tr>
                   </thead>
                   <tbody>

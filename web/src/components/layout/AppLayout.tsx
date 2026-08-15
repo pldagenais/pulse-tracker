@@ -5,6 +5,7 @@ import {
   LayoutDashboard, CalendarDays, FolderGit2, MessagesSquare, TrendingUp, BookOpen, Activity, Search, FileText, Sun, Moon, Rocket, Radar, Wrench,
 } from 'lucide-react';
 import { useTheme } from '../../lib/theme';
+import { useLocale, useT } from '../../lib/i18n';
 import { LivePill } from './LivePill';
 import { AlertBell } from './AlertBell';
 import { OfflineBanner } from './OfflineBanner';
@@ -20,33 +21,33 @@ import { fmtBytes } from '../../lib/format';
 import { todayKey, addDays, addMonths } from '../../lib/time';
 
 const NAV = [
-  { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
-  { to: '/mission', label: 'Mission Control', icon: Radar },
-  { to: '/timeline/day', label: 'Timeline', icon: CalendarDays, match: '/timeline' },
-  { to: '/projects', label: 'Projects', icon: FolderGit2 },
-  { to: '/prompts', label: 'Prompts', icon: MessagesSquare },
-  { to: '/insights', label: 'Insights', icon: TrendingUp },
-  { to: '/report', label: 'Report', icon: FileText },
-  { to: '/run', label: 'Run', icon: Rocket },
-  { to: '/manage', label: 'Manage', icon: Wrench },
-  { to: '/journal', label: 'Journal', icon: BookOpen },
-];
+  { to: '/', key: 'nav.dashboard', icon: LayoutDashboard, end: true },
+  { to: '/mission', key: 'nav.mission', icon: Radar },
+  { to: '/timeline/day', key: 'nav.timeline', icon: CalendarDays, match: '/timeline' },
+  { to: '/projects', key: 'nav.projects', icon: FolderGit2 },
+  { to: '/prompts', key: 'nav.prompts', icon: MessagesSquare },
+  { to: '/insights', key: 'nav.insights', icon: TrendingUp },
+  { to: '/report', key: 'nav.report', icon: FileText },
+  { to: '/run', key: 'nav.run', icon: Rocket },
+  { to: '/manage', key: 'nav.manage', icon: Wrench },
+  { to: '/journal', key: 'nav.journal', icon: BookOpen },
+] as const;
 
-const TITLES: [string, string][] = [
-  ['/mission', 'Mission Control'],
-  ['/timeline', 'Timeline'],
-  ['/projects', 'Projects'],
-  ['/sessions', 'Session'],
-  ['/prompts', 'Prompts'],
-  ['/insights', 'Insights'],
-  ['/report', 'Project report'],
-  ['/run', 'Run Claude'],
-  ['/manage', 'Manage Claude Code'],
-  ['/compare', 'Compare sessions'],
-  ['/journal', 'Journal'],
-  ['/digest', 'Weekly digest'],
-  ['/status', 'Status'],
-];
+const TITLES = [
+  ['/mission', 'nav.mission'],
+  ['/timeline', 'nav.timeline'],
+  ['/projects', 'nav.projects'],
+  ['/sessions', 'nav.session'],
+  ['/prompts', 'nav.prompts'],
+  ['/insights', 'nav.insights'],
+  ['/report', 'nav.reportTitle'],
+  ['/run', 'nav.runTitle'],
+  ['/manage', 'nav.manageTitle'],
+  ['/compare', 'nav.compare'],
+  ['/journal', 'nav.journal'],
+  ['/digest', 'nav.digestTitle'],
+  ['/status', 'nav.status'],
+] as const;
 
 export function AppLayout() {
   const location = useLocation();
@@ -60,6 +61,8 @@ export function AppLayout() {
     working: s.sessions.filter((x) => x.status === 'working').length,
   }));
   const { theme, toggle: toggleTheme } = useTheme();
+  const [loc, setLoc] = useLocale();
+  const { t, tf } = useT();
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const fetching = useIsFetching();
@@ -73,7 +76,7 @@ export function AppLayout() {
     (n > 0 ? nav.setAppBadge(n) : nav.clearAppBadge?.())?.catch(() => { /* unsupported */ });
   }, [needsYou, working]);
 
-  const title = TITLES.find(([p]) => location.pathname.startsWith(p))?.[1] ?? 'Dashboard';
+  const title = t(TITLES.find(([p]) => location.pathname.startsWith(p))?.[1] ?? 'nav.dashboard');
   const indexing = ingest && (ingest.phase === 'backfill' || ingest.phase === 'rescan') && ingest.filesTotal > 0;
 
   // SPA route changes are invisible to a screen reader: the h1 swaps silently
@@ -129,7 +132,7 @@ export function AppLayout() {
           <div className="font-display text-lg font-semibold tracking-tight text-ink">
             <span className="hidden lg:inline">Pulse</span><span className="text-claude">▌</span>
           </div>
-          <div className="microlabel mt-0.5 hidden lg:block">claude code tracker</div>
+          <div className="microlabel mt-0.5 hidden lg:block">{t('shell.appName')}</div>
         </div>
         <nav className="flex-1 space-y-0.5 p-2">
           {/* Manage drives local processes and files — meaningless remotely */}
@@ -137,26 +140,26 @@ export function AppLayout() {
             <NavLink
               key={n.to}
               to={n.to}
-              end={n.end}
-              title={n.label}
+              end={"end" in n && n.end}
+              title={t(n.key)}
               className={({ isActive }) =>
                 cn(
                   'flex items-center justify-center gap-2.5 rounded px-2.5 py-2 text-[14px] transition-colors lg:justify-start',
-                  isActive || (n.match && location.pathname.startsWith(n.match))
+                  isActive || ('match' in n && location.pathname.startsWith(n.match))
                     ? 'bg-raise text-ink'
                     : 'text-mid hover:bg-surface2 hover:text-ink'
                 )
               }
             >
               <n.icon size={15} strokeWidth={1.8} className="shrink-0 opacity-80" />
-              <span className="hidden lg:inline">{n.label}</span>
+              <span className="hidden lg:inline">{t(n.key)}</span>
             </NavLink>
           ))}
         </nav>
         <div className="border-t border-line p-2">
           <NavLink
             to="/status"
-            title="Status"
+            title={t('nav.status')}
             className={({ isActive }) =>
               cn(
                 'flex items-center justify-center gap-2.5 rounded px-2.5 py-2 text-[14px] lg:justify-start',
@@ -165,7 +168,7 @@ export function AppLayout() {
             }
           >
             <Activity size={15} strokeWidth={1.8} />
-            <span className="hidden lg:inline">Status</span>
+            <span className="hidden lg:inline">{t('nav.status')}</span>
           </NavLink>
         </div>
       </aside>
@@ -177,16 +180,24 @@ export function AppLayout() {
           <div className="flex items-center gap-2.5">
             <button
               onClick={() => setPaletteOpen(true)}
-              aria-label="Open command palette"
+              aria-label={t('shell.openPalette')}
               className="flex items-center gap-2 rounded-full border border-line bg-surface2 px-3 py-1.5 font-mono text-[11px] uppercase tracking-wider text-dim hover:text-mid"
             >
               <Search size={11} />
               <kbd>ctrl k</kbd>
             </button>
             <button
+              onClick={() => setLoc(loc === 'en' ? 'fr' : 'en')}
+              aria-label={t('shell.language')}
+              title={loc === 'en' ? 'Français' : 'English'}
+              className="flex h-8 items-center justify-center rounded-full border border-line bg-surface2 px-2.5 font-mono text-[11px] uppercase tracking-wider text-dim hover:text-mid"
+            >
+              {loc === 'en' ? 'fr' : 'en'}
+            </button>
+            <button
               onClick={toggleTheme}
-              aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
-              title={theme === 'dark' ? 'Light theme' : 'Dark theme'}
+              aria-label={theme === 'dark' ? t('shell.switchToLight') : t('shell.switchToDark')}
+              title={theme === 'dark' ? t('shell.lightTheme') : t('shell.darkTheme')}
               className="theme-flip flex h-8 w-8 items-center justify-center rounded-full border border-line bg-surface2 text-dim hover:text-mid"
             >
               {theme === 'dark' ? <Sun size={13} key="sun" /> : <Moon size={13} key="moon" />}
@@ -204,12 +215,12 @@ export function AppLayout() {
           <div className="border-b border-line bg-surface2 px-5 py-2 print:hidden">
             {/* announced per 10%, not per file — a firehose would drown everything else */}
             <span role="status" aria-live="polite" aria-atomic="true" className="sr-only">
-              Indexing {Math.floor((ingest.filesDone / Math.max(ingest.filesTotal, 1)) * 10) * 10} percent
+              {tf('shell.indexingPercent', { pct: Math.floor((ingest.filesDone / Math.max(ingest.filesTotal, 1)) * 10) * 10 })}
             </span>
             <div className="flex items-center justify-between font-mono text-[12px] text-mid">
               <span>
-                Indexing your Claude Code history — {ingest.filesDone}/{ingest.filesTotal} files
-                {ingest.bytesTotal > 0 && ` · ${fmtBytes(ingest.bytesDone)} of ${fmtBytes(ingest.bytesTotal)}`}
+                {tf('shell.indexingHistory', { done: ingest.filesDone, total: ingest.filesTotal })}
+                {ingest.bytesTotal > 0 && ` · ${tf('shell.bytesOf', { done: fmtBytes(ingest.bytesDone), total: fmtBytes(ingest.bytesTotal) })}`}
               </span>
               <span className="text-claude">{Math.round((ingest.filesDone / Math.max(ingest.filesTotal, 1)) * 100)}%</span>
             </div>

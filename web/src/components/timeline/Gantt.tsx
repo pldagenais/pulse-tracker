@@ -25,6 +25,7 @@ import { dayStartMs, dayEndMs, isToday } from '../../lib/time';
 import { projectColor, CLAUDE_COLOR, USER_COLOR } from '../../lib/colors';
 import { fmtClock, fmtDuration, plural } from '../../lib/format';
 import { useNow } from '../../lib/live';
+import { useT } from '../../lib/i18n';
 import { Badge } from '../ui';
 
 const ROW_H = 26;
@@ -42,14 +43,14 @@ interface Row {
   session?: TimelineSession;
 }
 
-export function buildRows(sessions: TimelineSession[], laneMode: LaneMode = 'project'): Row[] {
+export function buildRows(sessions: TimelineSession[], laneMode: LaneMode = 'project', untitled = 'Untitled session'): Row[] {
   if (laneMode === 'session') {
     return [...sessions]
       .sort((a, b) => (a.turns[0]?.start ?? 0) - (b.turns[0]?.start ?? 0))
       .map((s) => ({
         kind: 'session' as const,
         projectId: s.projectId,
-        label: `${s.projectName} — ${s.title || s.lastPrompt || 'Untitled session'}`,
+        label: `${s.projectName} — ${s.title || s.lastPrompt || untitled}`,
         worktree: s.worktreeBranch,
         session: s,
       }));
@@ -67,7 +68,7 @@ export function buildRows(sessions: TimelineSession[], laneMode: LaneMode = 'pro
   for (const [pid, g] of byProject) {
     rows.push({ kind: 'header', projectId: pid, label: g.name });
     for (const s of g.sessions.sort((a, b) => (a.turns[0]?.start ?? 0) - (b.turns[0]?.start ?? 0))) {
-      rows.push({ kind: 'session', projectId: s.projectId, label: s.title || s.lastPrompt || 'Untitled session', worktree: s.worktreeBranch, session: s });
+      rows.push({ kind: 'session', projectId: s.projectId, label: s.title || s.lastPrompt || untitled, worktree: s.worktreeBranch, session: s });
     }
   }
   return rows;
@@ -177,10 +178,11 @@ function useElementWidth<T extends HTMLElement>(): [React.RefObject<T | null>, n
 export function Gantt({ day, full24, laneMode = 'project' }: { day: TimelineDay; full24: boolean; laneMode?: LaneMode }) {
   const now = useNow(30_000);
   const [, setParams] = useSearchParams();
+  const { t, tf } = useT();
   const tipRef = useRef<TipHandle>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  const rows = useMemo(() => buildRows(day.sessions, laneMode), [day.sessions, laneMode]);
+  const rows = useMemo(() => buildRows(day.sessions, laneMode, t('timeline.untitledSession')), [day.sessions, laneMode, t]);
   const [zoom, setZoom] = useState<[number, number] | null>(null);
   useEffect(() => setZoom(null), [day.date]);
   const fitDomain = useMemo(() => domainFor(day, full24, now), [day, full24, now]);
@@ -299,7 +301,7 @@ export function Gantt({ day, full24, laneMode = 'project' }: { day: TimelineDay;
                 onClick={() => openSession(r.session!.sessionId)}
                 className="flex w-full items-center gap-1.5 px-2 pl-5 text-left hover:bg-surface2 focus-visible:outline focus-visible:outline-1 focus-visible:outline-claude/60"
                 style={{ height: ROW_H }}
-                title={r.worktree ? `${r.label} · ${r.worktree} · cloud worktree session` : r.label}
+                title={r.worktree ? tf('timeline.cloudWorktreeTitle', { label: r.label, worktree: r.worktree }) : r.label}
               >
                 <span className="min-w-0 flex-1 truncate text-[12px] text-mid">{r.label}</span>
                 {r.worktree && <Cloud size={10} className="shrink-0 text-claude/70" aria-hidden />}
@@ -316,7 +318,7 @@ export function Gantt({ day, full24, laneMode = 'project' }: { day: TimelineDay;
               onClick={() => setZoom(null)}
               className="absolute right-1.5 top-1 z-20 rounded border border-line bg-raise px-2 py-0.5 font-mono text-[11px] uppercase tracking-wider text-mid hover:text-claude"
             >
-              reset zoom
+              {t('timeline.resetZoom')}
             </button>
           )}
           <svg
@@ -371,7 +373,7 @@ export function Gantt({ day, full24, laneMode = 'project' }: { day: TimelineDay;
                       style={{ fill: USER_COLOR }} opacity={0.22} rx={2}
                       onPointerEnter={(e) => showTip(e, (
                         <>
-                          <div className="text-user">you active</div>
+                          <div className="text-user">{t('timeline.youActive')}</div>
                           <div>{fmtClock(g.start)}–{fmtClock(g.end)} · {fmtDuration(g.end - g.start)}</div>
                         </>
                       ))}
@@ -379,25 +381,25 @@ export function Gantt({ day, full24, laneMode = 'project' }: { day: TimelineDay;
                     />
                   ))}
                   {/* claude turn blocks */}
-                  {s.turns.map((t, ti) => (
+                  {s.turns.map((tn, ti) => (
                     <g key={`t${ti}`}>
                       <rect
-                        x={x(t.start)} y={mid - 6} width={Math.max(x(t.end) - x(t.start), 2.5)} height={12}
+                        x={x(tn.start)} y={mid - 6} width={Math.max(x(tn.end) - x(tn.start), 2.5)} height={12}
                         style={{ fill: CLAUDE_COLOR }} rx={2.5}
                         opacity={0.92}
                         className="cursor-pointer hover:opacity-100"
-                        onClick={() => openSession(s.sessionId, t.promptUuid)}
+                        onClick={() => openSession(s.sessionId, tn.promptUuid)}
                         onPointerEnter={(e) => showTip(e, (
                           <>
-                            <div className="text-claude">claude working · {fmtDuration(t.claudeMs)}</div>
-                            <div className="text-dim">{fmtClock(t.start)}–{fmtClock(t.end)} · {plural(t.toolUseCount, 'tool call')}</div>
-                            {t.promptText && <div className="mt-1 max-w-[280px] truncate text-ink/80">“{t.promptText.slice(0, 140)}”</div>}
+                            <div className="text-claude">{t('timeline.claudeWorking')} · {fmtDuration(tn.claudeMs)}</div>
+                            <div className="text-dim">{fmtClock(tn.start)}–{fmtClock(tn.end)} · {plural(tn.toolUseCount, 'tool call')}</div>
+                            {tn.promptText && <div className="mt-1 max-w-[280px] truncate text-ink/80">“{tn.promptText.slice(0, 140)}”</div>}
                           </>
                         ))}
                         onPointerLeave={hideTip}
                       />
-                      {t.contLeft && <text x={x(t.start) - 2} y={mid + 3.5} fontSize={9} textAnchor="end" style={{ fill: CLAUDE_COLOR }}>‹</text>}
-                      {t.contRight && <text x={x(t.end) + 2} y={mid + 3.5} fontSize={9} style={{ fill: CLAUDE_COLOR }}>›</text>}
+                      {tn.contLeft && <text x={x(tn.start) - 2} y={mid + 3.5} fontSize={9} textAnchor="end" style={{ fill: CLAUDE_COLOR }}>‹</text>}
+                      {tn.contRight && <text x={x(tn.end) + 2} y={mid + 3.5} fontSize={9} style={{ fill: CLAUDE_COLOR }}>›</text>}
                     </g>
                   ))}
                   {/* prompt ticks — visible mark is 2px; the hit target is 12px */}
@@ -446,10 +448,10 @@ export function Gantt({ day, full24, laneMode = 'project' }: { day: TimelineDay;
 
       {/* legend */}
       <div className="mt-3 flex items-center gap-4 border-t border-line pt-2.5 font-mono text-[11px] uppercase tracking-wider text-dim">
-        <span className="flex items-center gap-1.5"><span className="h-2 w-4 rounded-sm" style={{ background: CLAUDE_COLOR }} /> claude working</span>
-        <span className="flex items-center gap-1.5"><span className="h-2 w-4 rounded-sm" style={{ background: USER_COLOR, opacity: 0.4 }} /> you active</span>
+        <span className="flex items-center gap-1.5"><span className="h-2 w-4 rounded-sm" style={{ background: CLAUDE_COLOR }} /> {t('timeline.claudeWorking')}</span>
+        <span className="flex items-center gap-1.5"><span className="h-2 w-4 rounded-sm" style={{ background: USER_COLOR, opacity: 0.4 }} /> {t('timeline.youActive')}</span>
         <span className="flex items-center gap-1.5"><span className="inline-block h-2 w-0.5" style={{ background: USER_COLOR }} /> prompt</span>
-        <span className="flex items-center gap-1.5"><Cloud size={10} className="text-claude/70" aria-hidden /> cloud (worktree) session</span>
+        <span className="flex items-center gap-1.5"><Cloud size={10} className="text-claude/70" aria-hidden /> {t('timeline.cloudWorktreeSession')}</span>
       </div>
     </div>
   );

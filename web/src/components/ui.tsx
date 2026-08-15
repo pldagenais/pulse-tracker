@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState, type ReactNode } from 'react';
 import { cn } from '../lib/cn';
+import { useT } from '../lib/i18n';
 
 /**
  * Runs a write and keeps its failure. An `async` function passed straight to
@@ -325,12 +326,13 @@ export function Sparkline({
 }
 
 export function ErrorState({ message, onRetry }: { message: string; onRetry?: () => void }) {
+  const { t } = useT();
   return (
     <div className="flex flex-col items-center gap-2 py-10 text-center">
       <div className="font-mono text-xs text-danger">{message}</div>
       {onRetry && (
         <button onClick={onRetry} className="rounded border border-line2 px-3 py-1 font-mono text-[12px] uppercase tracking-wider text-mid hover:text-ink">
-          retry
+          {t('misc.retry')}
         </button>
       )}
     </div>

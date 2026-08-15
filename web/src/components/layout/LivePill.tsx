@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { Cloud, Square } from 'lucide-react';
 import { useLive, useNow } from '../../lib/live';
+import { useT } from '../../lib/i18n';
 import { api } from '../../lib/api';
 import { fmtElapsed } from '../../lib/format';
 import { cn } from '../../lib/cn';
@@ -9,6 +10,7 @@ import type { LiveSession } from '../../lib/types';
 
 export function LivePill() {
   const { connection, sessions, ingest } = useLive();
+  const { t, tf } = useT();
   const now = useNow(1000);
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
@@ -28,36 +30,39 @@ export function LivePill() {
   if (connection === 'stale') {
     // cloud only: the mirror answers but the PC feeding it stopped reporting
     dot = 'bg-dim';
-    label = 'PC offline';
+    label = t('pill.pcOffline');
   } else if (connection !== 'live') {
     dot = 'bg-user';
-    label = 'reconnecting…';
+    label = t('pill.reconnecting');
   } else if (indexing) {
     dot = 'bg-claude pulse-dot';
-    label = `indexing ${pct}%`;
+    label = tf('pill.indexing', { pct });
     tone = 'working';
   } else if (needsYou.length > 0) {
     dot = 'bg-user pulse-dot';
     tone = 'attention';
     label = needsYou.length === 1
-      ? `needs you · ${needsYou[0].projectName ?? '?'}`
-      : `${needsYou.length} sessions need you`;
+      ? tf('pill.needsYou', { project: needsYou[0].projectName ?? '?' })
+      : tf('pill.needsYouMany', { n: needsYou.length });
   } else if (working.length === 1) {
     dot = 'bg-claude pulse-dot';
     tone = 'working';
     const w = working[0];
     showCloud = w.cloud;
-    label = `${w.stalled ? 'stalled? · ' : 'working · '}${w.projectName ?? '?'} · ${fmtElapsed(now - w.since)}`;
+    label = tf(w.stalled ? 'pill.stalled' : 'pill.working', {
+      project: w.projectName ?? '?',
+      elapsed: fmtElapsed(now - w.since),
+    });
   } else if (working.length > 1) {
     dot = 'bg-claude pulse-dot';
     tone = 'working';
     showCloud = cloudWorking > 0;
-    label = `${working.length} working${cloudWorking ? ` · ${cloudWorking} cloud` : ''}`;
+    label = tf('pill.workingMany', { n: working.length }) + (cloudWorking ? tf('pill.cloudSuffix', { n: cloudWorking }) : '');
   } else if (sessions.length > 0) {
     dot = 'bg-ok';
-    label = `${sessions.length} open · idle`;
+    label = tf('pill.openIdle', { n: sessions.length });
   } else {
-    label = 'idle';
+    label = t('pill.idle');
   }
 
   return (
@@ -79,15 +84,15 @@ export function LivePill() {
         )}
       >
         <span className={cn('h-2 w-2 rounded-full', dot)} />
-        {showCloud && <Cloud size={11} className="text-claude/80" aria-label="includes cloud sessions" />}
+        {showCloud && <Cloud size={11} className="text-claude/80" aria-label={t('pill.includesCloud')} />}
         {label}
       </button>
       {open && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
           <div className="glass-strong absolute right-0 z-50 mt-2 w-96 rounded-xl p-2">
-            <div className="microlabel px-2 py-1">live sessions</div>
-            {sessions.length === 0 && <div className="px-2 py-3 text-xs text-dim">No Claude Code sessions detected.</div>}
+            <div className="microlabel px-2 py-1">{t('pill.liveSessions')}</div>
+            {sessions.length === 0 && <div className="px-2 py-3 text-xs text-dim">{t('pill.noSessions')}</div>}
             {[...needsYou, ...working, ...rest].map((s) => (
               <SessionRow key={s.sessionId} s={s} now={now} onOpen={() => { setOpen(false); navigate(`/sessions/${s.sessionId}`); }} />
             ))}
@@ -99,17 +104,18 @@ export function LivePill() {
 }
 
 function SessionRow({ s, now, onOpen }: { s: LiveSession; now: number; onOpen: () => void }) {
+  const { t, tf } = useT();
   const [killing, setKilling] = useState(false);
   const killable = !s.cloud && (s.status === 'working' || s.status === 'needs-you');
 
   const kill = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!window.confirm(`Interrupt this session?\n\n${s.projectName ?? s.sessionId}\nThe claude process is terminated immediately — unsaved terminal state is lost.`)) return;
+    if (!window.confirm(tf('pill.confirmInterrupt', { name: s.projectName ?? s.sessionId }))) return;
     setKilling(true);
     try {
       await api.post(`/api/sessions/${s.sessionId}/kill`, {});
     } catch (err) {
-      window.alert(`Kill failed: ${err instanceof Error ? err.message : err}`);
+      window.alert(tf('pill.killFailed', { error: err instanceof Error ? err.message : String(err) }));
     } finally {
       setKilling(false);
     }
@@ -131,15 +137,15 @@ function SessionRow({ s, now, onOpen }: { s: LiveSession; now: number; onOpen: (
       />
       <span className="min-w-0 flex-1">
         <span className="flex items-center gap-1.5 truncate text-xs text-ink">
-          {s.cloud && <Cloud size={11} className="shrink-0 text-claude/70" aria-label="cloud session" />}
+          {s.cloud && <Cloud size={11} className="shrink-0 text-claude/70" aria-label={t('pill.cloudSession')} />}
           {s.projectName ?? '?'}
           {s.title ? <span className="truncate text-dim"> — {s.title}</span> : null}
         </span>
         <span className={cn('block truncate font-mono text-[11px]', s.status === 'needs-you' ? 'text-user' : 'text-dim')}>
           {s.status === 'needs-you'
-            ? (s.notification ?? 'waiting for your input')
+            ? (s.notification ?? t('pill.waitingInput'))
             : s.status === 'working'
-              ? `${s.stalled ? 'stalled? ' : 'working '}${fmtElapsed(now - s.since)}`
+              ? `${s.stalled ? t('pill.rowStalled') : t('pill.rowWorking')} ${fmtElapsed(now - s.since)}`
               : s.status}
           {s.status !== 'needs-you' && s.lastPrompt ? ` · ${s.lastPrompt}` : ''}
         </span>
@@ -148,8 +154,8 @@ function SessionRow({ s, now, onOpen }: { s: LiveSession; now: number; onOpen: (
         <button
           onClick={kill}
           disabled={killing}
-          aria-label="Interrupt session"
-          title="Interrupt (kill) this session"
+          aria-label={t('pill.interrupt')}
+          title={t('pill.interruptTitle')}
           className="mt-0.5 shrink-0 rounded border border-line p-1 text-dim opacity-40 transition-opacity hover:border-danger/50 hover:text-danger focus-visible:opacity-100 group-hover:opacity-100 disabled:opacity-30"
         >
           <Square size={9} fill="currentColor" />

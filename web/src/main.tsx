@@ -9,6 +9,7 @@ import { MODE } from './lib/source';
 import { convex } from './lib/convexClient';
 import { api } from './lib/api';
 import { setDayKeyZone } from './lib/time';
+import { t } from './lib/i18n';
 import { SignIn } from './components/layout/SignIn';
 import { initTheme } from './lib/theme';
 import { router } from './routes';
@@ -55,10 +56,14 @@ function showUpdateToast() {
   el.setAttribute('role', 'status');
   el.className =
     'fixed bottom-4 right-4 z-[100] flex items-center gap-3 rounded-xl border border-line2 bg-raise px-4 py-3 font-mono text-[12px] text-ink shadow-2xl';
-  el.innerHTML =
-    '<span>A new version of Pulse is available.</span>' +
-    '<button class="rounded border border-claude/50 bg-claude/10 px-2.5 py-1 uppercase tracking-wider text-claude hover:bg-claude/20">reload</button>';
-  el.querySelector('button')?.addEventListener('click', () => window.location.reload());
+  // raw DOM, not a component: read the locale at show time
+  const msg = document.createElement('span');
+  msg.textContent = t('update.available');
+  const btn = document.createElement('button');
+  btn.className = 'rounded border border-claude/50 bg-claude/10 px-2.5 py-1 uppercase tracking-wider text-claude hover:bg-claude/20';
+  btn.textContent = t('update.reload');
+  btn.addEventListener('click', () => window.location.reload());
+  el.append(msg, btn);
   document.body.appendChild(el);
 }
 watchForNewBuild();

@@ -2,6 +2,7 @@ import { CloudOff } from 'lucide-react';
 import { useLiveSelector } from '../../lib/live';
 import { MODE } from '../../lib/source';
 import { fmtRelative } from '../../lib/format';
+import { useT } from '../../lib/i18n';
 
 /**
  * Cloud mode only: the mirror keeps serving data while the PC sleeps, so say
@@ -16,13 +17,14 @@ export function OfflineBanner() {
     connection: s.connection,
     staleSince: s.staleSince,
   }));
+  const { t, tf } = useT();
 
   if (MODE !== 'cloud' || connection !== 'stale') return null;
 
   return (
     <div role="alert" className="flex items-center gap-2 border-b border-user/40 bg-user/10 px-5 py-2 font-mono text-[12px] text-user">
       <CloudOff size={13} />
-      Your PC is offline — showing data{staleSince ? ` as of ${fmtRelative(staleSince)}` : ' from its last sync'}.
+      {staleSince ? tf('offline.banner', { when: fmtRelative(staleSince) }) : t('offline.bannerNoTime')}
     </div>
   );
 }

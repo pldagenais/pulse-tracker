@@ -12,6 +12,7 @@ import { fmtClock, fmtCost, fmtCount, fmtDay, fmtDayFull, fmtDuration, fmtRelati
 import { renderInline } from '../lib/md';
 import { Badge, Card, EmptyState, SegmentedControl, SkeletonRows, StatCard } from '../components/ui';
 import { cn } from '../lib/cn';
+import { getLocale, useT } from '../lib/i18n';
 
 interface ReportSession {
   id: string;
@@ -62,6 +63,7 @@ type Range = 'all' | '90d' | '30d';
 
 export default function ReportPage() {
   const [params, setParams] = useSearchParams();
+  const { t, tf } = useT();
   const projects = useQuery(projectsQuery());
   const roots = useMemo(
     () => (projects.data ?? []).filter((p) => p.parentProjectId == null).sort((a, b) => (b.lastActive ?? 0) - (a.lastActive ?? 0)),
@@ -75,7 +77,12 @@ export default function ReportPage() {
   const report = useQuery(reportQuery(projectId, from, range === 'all' ? null : to));
   const queryClient = useQueryClient();
   const summarize = useMutation({
-    mutationFn: () => api.post<{ markdown: string }>(`/api/report/${projectId}/summarize`, { from: report.data?.from, to: report.data?.to }),
+    mutationFn: () =>
+      api.post<{ markdown: string }>(`/api/report/${projectId}/summarize`, {
+        from: report.data?.from,
+        to: report.data?.to,
+        lang: getLocale(), // AI summary follows the UI language
+      }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['report'] }),
   });
 
@@ -98,7 +105,7 @@ export default function ReportPage() {
         <select
           value={projectId ?? ''}
           onChange={(e) => setParam('project', e.target.value)}
-          aria-label="Project"
+          aria-label={t('report.projectAria')}
           className="min-w-52 rounded-md border border-line bg-surface px-3 py-2 text-[14px] text-ink outline-none"
         >
           {roots.map((p) => (
@@ -107,9 +114,9 @@ export default function ReportPage() {
         </select>
         <SegmentedControl<Range>
           options={[
-            { value: 'all', label: 'All time' },
-            { value: '90d', label: '90d' },
-            { value: '30d', label: '30d' },
+            { value: 'all', label: t('report.allTime') },
+            { value: '90d', label: t('report.range90') },
+            { value: '30d', label: t('report.range30') },
           ]}
           value={range}
           onChange={(v) => setParam('range', v === 'all' ? null : v)}
@@ -121,14 +128,14 @@ export default function ReportPage() {
             className="flex items-center gap-1.5 rounded-md border border-claude/50 bg-claude/10 px-3 py-2 font-mono text-[12px] uppercase tracking-wider text-claude hover:bg-claude/20 disabled:opacity-40"
           >
             {summarize.isPending ? <RefreshCw size={12} className="animate-spin" /> : <Sparkles size={12} />}
-            {summarize.isPending ? 'summarizing…' : d?.summary && !d.summary.stale ? 'refresh summary' : d?.summary?.stale ? 'update summary' : 'AI summary'}
+            {summarize.isPending ? t('report.summarizing') : d?.summary && !d.summary.stale ? t('report.refreshSummary') : d?.summary?.stale ? t('report.updateSummary') : t('report.aiSummaryBtn')}
           </button>
           {/* the PDF is rendered by the local server, so the link only exists there */}
           {MODE === 'local' && (
             <a
               href={pdfHref}
               className="flex items-center gap-1.5 rounded-md border border-line px-3 py-2 font-mono text-[12px] uppercase tracking-wider text-mid hover:bg-surface2 hover:text-ink"
-              title="Export as PDF"
+              title={t('report.exportPdf')}
             >
               <FileDown size={12} /> pdf
             </a>
@@ -137,7 +144,7 @@ export default function ReportPage() {
       </div>
       {summarize.isPending && (
         <div className="rounded-md border border-claude/30 bg-claude/5 px-3 py-2 font-mono text-[12px] text-claude">
-          Claude (Haiku) is reading this project's prompts and notes — usually 20–60 seconds…
+          {t('report.summarizeProgress')}
         </div>
       )}
       {summarize.isError && (
@@ -151,26 +158,26 @@ export default function ReportPage() {
       {d && (
         <>
           <div>
-            <h1 className="font-display text-xl font-medium text-ink">{d.project.name} — work changelog</h1>
+            <h1 className="font-display text-xl font-medium text-ink">{tf('report.changelogTitle', { name: d.project.name })}</h1>
             <div className="mt-0.5 font-mono text-[12px] text-dim">
               {fmtDay(d.from)} — {fmtDay(d.to)} · {d.project.path}
             </div>
           </div>
 
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <StatCard label="claude working" value={fmtDuration(d.totals.claudeMs)} accent="claude" sub={plural(d.totals.sessions, 'session')} />
-            <StatCard label="prompts" value={fmtCount(d.totals.prompts)} />
+            <StatCard label={t('report.claudeWorking')} value={fmtDuration(d.totals.claudeMs)} accent="claude" sub={plural(d.totals.sessions, 'session')} />
+            <StatCard label={t('report.prompts')} value={fmtCount(d.totals.prompts)} />
             <StatCard
-              label="lines changed"
+              label={t('report.linesChanged')}
               value={d.totals.linesAdded ? `+${fmtCount(d.totals.linesAdded)}` : '—'}
-              sub={d.totals.linesRemoved ? `−${fmtCount(d.totals.linesRemoved)} removed · via subagents` : 'via subagents'}
+              sub={d.totals.linesRemoved ? tf('report.removedVia', { n: fmtCount(d.totals.linesRemoved) }) : t('report.viaSubagents')}
             />
-            <StatCard label="est. cost" value={fmtCost(d.totals.estCostUsd)} sub={d.totals.prCount ? plural(d.totals.prCount, 'pull request') : undefined} />
+            <StatCard label={t('report.estCost')} value={fmtCost(d.totals.estCostUsd)} sub={d.totals.prCount ? plural(d.totals.prCount, 'pull request') : undefined} />
           </div>
 
           {d.summary && (
             <Card
-              title={`ai summary${d.summary.stale ? ' · outdated (new work since)' : ''}`}
+              title={`${t('report.aiSummaryTitle')}${d.summary.stale ? t('report.aiSummaryStale') : ''}`}
               action={<span className="font-mono text-[11px] text-dim">{fmtRelative(d.summary.createdAt)}</span>}
               bodyClassName={cn('p-4', d.summary.stale && 'opacity-70')}
             >
@@ -178,7 +185,7 @@ export default function ReportPage() {
             </Card>
           )}
 
-          {d.days.length === 0 && <EmptyState title="No recorded activity in this period" />}
+          {d.days.length === 0 && <EmptyState title={t('report.noActivity')} />}
 
           {[...d.days].reverse().map((day) => (
             <section key={day.date}>
@@ -199,7 +206,7 @@ export default function ReportPage() {
                       <span>{plural(s.promptCount, 'prompt')}</span>
                       {s.linesAdded > 0 && (
                         <span>
-                          <span className="text-ok">+{fmtCount(s.linesAdded)}</span> <span className="text-danger">−{fmtCount(s.linesRemoved)}</span> lines
+                          <span className="text-ok">+{fmtCount(s.linesAdded)}</span> <span className="text-danger">−{fmtCount(s.linesRemoved)}</span> {t('report.lines')}
                         </span>
                       )}
                       {s.prLinks.map((pr) => (

@@ -6,6 +6,7 @@ import {
   overviewQuery, sessionsQuery, journalInfiniteQuery, activityQuery, settingsQuery, dailyStatsQuery,
 } from '../lib/queries';
 import { useLive, useNow } from '../lib/live';
+import { useT } from '../lib/i18n';
 import { todayKey } from '../lib/time';
 import { fmtCost, fmtCount, fmtDay, fmtDuration, fmtElapsed, fmtRelative, plural } from '../lib/format';
 import { Card, StatCard, EmptyState, Skeleton, SkeletonRows, Badge, ProgressBar, Sparkline } from '../components/ui';
@@ -20,6 +21,7 @@ export default function DashboardPage() {
   const recent = useQuery(sessionsQuery({ pageSize: 8 }));
   const journal = useInfiniteQuery(journalInfiniteQuery());
   const settings = useQuery(settingsQuery());
+  const { t, tf } = useT();
   const d = ov.data;
   // cloud: the query SUCCEEDED but the snapshot is null — this day was never
   // mirrored. Without this the difference from "loading" is invisible and the
@@ -36,8 +38,8 @@ export default function DashboardPage() {
         {notMirrored ? (
           <div className="col-span-2 lg:col-span-5">
             <EmptyState
-              title="No data mirrored for today yet"
-              hint="Your PC mirrors each day as it happens — this appears when today has not synced yet."
+              title={t('dashboard.notMirroredTitle')}
+              hint={t('dashboard.notMirroredHint')}
             />
           </div>
         ) : ov.isLoading || !d ? (
@@ -45,59 +47,59 @@ export default function DashboardPage() {
         ) : (
           <>
             <StatCard
-              label="claude working · today"
+              label={t('dashboard.claudeWorkingToday')}
               value={fmtDuration(d.claudeMs)}
               sub={
                 <span className="flex flex-col gap-1">
                   <Sparkline values={d.trend.map((t) => t.claudeMs)} color={CLAUDE_COLOR} />
                   <span className="flex items-center gap-2">
                     <DeltaLine now={d.claudeMs} prev={yesterday?.claudeMs ?? 0} fmt={fmtDuration} minDiff={60_000} />
-                    {d.subagentMs > 0 && <span className="text-dim">+ {fmtDuration(d.subagentMs)} subagents</span>}
+                    {d.subagentMs > 0 && <span className="text-dim">{tf('dashboard.subagents', { duration: fmtDuration(d.subagentMs) })}</span>}
                   </span>
                 </span>
               }
               accent="claude"
-              title="Total Claude compute across sessions — parallel sessions add up, so this can exceed wall-clock time."
+              title={t('dashboard.claudeWorkingTitle')}
             />
             <StatCard
-              label="you active · today"
+              label={t('dashboard.youActiveToday')}
               value={fmtDuration(d.userActiveMs)}
-              sub="review & prompt time, deduped"
+              sub={t('dashboard.youActiveSub')}
               accent="user"
-              title="Time you spent reviewing and prompting between turns; overlapping sessions counted once."
+              title={t('dashboard.youActiveTitle')}
             />
             <StatCard
-              label="prompts"
+              label={t('dashboard.prompts')}
               value={fmtCount(d.prompts)}
               sub={
                 <span className="flex flex-col gap-1">
                   <Sparkline values={d.trend.map((t) => t.prompts)} color={USER_COLOR} />
                   <span className="flex items-center gap-2">
                     <DeltaLine now={d.prompts} prev={yesterday?.prompts ?? 0} fmt={fmtCount} />
-                    <span className="text-dim">{fmtCount(d.sessions)} sessions today</span>
+                    <span className="text-dim">{tf('dashboard.sessionsToday', { n: fmtCount(d.sessions) })}</span>
                   </span>
                 </span>
               }
             />
-            <button onClick={() => setExplainCost(true)} className="h-full w-full text-left" title="Why? Click for the cost breakdown">
+            <button onClick={() => setExplainCost(true)} className="h-full w-full text-left" title={t('dashboard.costWhy')}>
               <StatCard
-                label="est. cost"
+                label={t('dashboard.estCost')}
                 value={fmtCost(d.estCostUsd)}
                 sub={
                   d.trend[13]?.unpriced ? (
-                    <span className="text-danger" title="A model without a price-table entry ran today — this figure is a floor, not a total.">
-                      partial — unpriced model in use
+                    <span className="text-danger" title={t('dashboard.costPartialTitle')}>
+                      {t('dashboard.costPartial')}
                     </span>
                   ) : (
-                    'API-equivalent · click to explain'
+                    t('dashboard.costApiEquiv')
                   )
                 }
               />
             </button>
             <StatCard
-              label="streak"
-              value={`${d.records.currentStreak}d`}
-              sub={`longest ${d.records.longestStreak}d`}
+              label={t('dashboard.streak')}
+              value={tf('dashboard.streakDays', { n: d.records.currentStreak })}
+              sub={tf('dashboard.streakLongest', { n: d.records.longestStreak })}
             />
           </>
         )}
@@ -107,34 +109,34 @@ export default function DashboardPage() {
         <div className="space-y-4 xl:col-span-7">
           <NowCard />
           <Card
-            title="recent sessions"
-            action={<Link to="/timeline/day" className="font-mono text-[11px] uppercase tracking-wider text-dim hover:text-claude">timeline →</Link>}
+            title={t('dashboard.recentSessions')}
+            action={<Link to="/timeline/day" className="font-mono text-[11px] uppercase tracking-wider text-dim hover:text-claude">{t('dashboard.timelineLink')}</Link>}
             bodyClassName="p-1.5"
           >
             {recent.isLoading && <SkeletonRows n={6} />}
-            {recent.data?.rows.length === 0 && <EmptyState title="No sessions recorded yet" />}
+            {recent.data?.rows.length === 0 && <EmptyState title={t('dashboard.noSessionsYet')} />}
             {recent.data?.rows.map((s) => <SessionListItem key={s.id} s={s} />)}
           </Card>
           <ActivityCard />
         </div>
 
         <div className="space-y-4 xl:col-span-5">
-          <Card title="last 7 days · claude time" bodyClassName="p-4">
+          <Card title={t('dashboard.last7Days')} bodyClassName="p-4">
             {d ? (
               <WeekTrend week={d.trend.slice(-7)} />
             ) : notMirrored ? (
-              <EmptyState title="Not mirrored yet" />
+              <EmptyState title={t('dashboard.notMirroredShort')} />
             ) : (
               <Skeleton className="h-28" />
             )}
           </Card>
-          <Card title="today by project" bodyClassName="p-4">
+          <Card title={t('dashboard.todayByProject')} bodyClassName="p-4">
             {notMirrored ? (
-              <EmptyState title="Not mirrored yet" />
+              <EmptyState title={t('dashboard.notMirroredShort')} />
             ) : !d ? (
               <Skeleton className="h-24" />
             ) : d.byProject.length === 0 ? (
-              <EmptyState title="Nothing tracked yet today" hint="Start a Claude Code session anywhere — it shows up here within seconds." />
+              <EmptyState title={t('dashboard.nothingTrackedTitle')} hint={t('dashboard.nothingTrackedHint')} />
             ) : (
               <TodaySplit rows={d.byProject} />
             )}
@@ -143,13 +145,13 @@ export default function DashboardPage() {
             <BudgetCard budget={settings.data.monthlyBudgetUsd} date={date} />
           )}
           <Card
-            title="journal"
-            action={<Link to="/journal" className="font-mono text-[11px] uppercase tracking-wider text-dim hover:text-claude">all →</Link>}
+            title={t('dashboard.journal')}
+            action={<Link to="/journal" className="font-mono text-[11px] uppercase tracking-wider text-dim hover:text-claude">{t('dashboard.allLink')}</Link>}
             bodyClassName="p-2"
           >
             {journal.data?.pages[0]?.rows.length === 0 && (
               <div className="px-2 py-3 text-xs text-dim">
-                No entries yet — Claude logs a one-liner here after finishing substantive work.
+                {t('dashboard.journalEmpty')}
               </div>
             )}
             {journal.data?.pages[0]?.rows.slice(0, 5).map((j) => (
@@ -176,14 +178,15 @@ function DeltaLine({
   fmt: (n: number) => string;
   minDiff?: number;
 }) {
+  const { t } = useT();
   const diff = now - prev;
   if (Math.abs(diff) < Math.max(minDiff, 1)) {
-    return <span className="font-mono text-[11px] text-dim">— same as yesterday</span>;
+    return <span className="font-mono text-[11px] text-dim">{t('dashboard.sameAsYesterday')}</span>;
   }
   const up = diff > 0;
   return (
     <span className={cn('font-mono text-[11px]', up ? 'text-ok' : 'text-danger')}>
-      {up ? '▲' : '▼'} {fmt(Math.abs(diff))} vs yesterday
+      {up ? '▲' : '▼'} {fmt(Math.abs(diff))} {t('dashboard.vsYesterday')}
     </span>
   );
 }
@@ -191,8 +194,9 @@ function DeltaLine({
 function BudgetCard({ budget, date }: { budget: number; date: string }) {
   const monthStart = date.slice(0, 8) + '01';
   const stats = useQuery(dailyStatsQuery(monthStart, date));
+  const { t } = useT();
   return (
-    <Card title="monthly budget" bodyClassName="p-4">
+    <Card title={t('dashboard.monthlyBudget')} bodyClassName="p-4">
       {!stats.data ? (
         <Skeleton className="h-12" />
       ) : (
@@ -203,6 +207,7 @@ function BudgetCard({ budget, date }: { budget: number; date: string }) {
 }
 
 function BudgetBody({ budget, date, rows }: { budget: number; date: string; rows: { estCostUsd: number; unpriced?: boolean }[] }) {
+  const { t, tf } = useT();
   const spent = rows.reduce((s, r) => s + r.estCostUsd, 0);
   const partial = rows.some((r) => r.unpriced);
   const [y, m, dom] = date.split('-').map(Number);
@@ -214,16 +219,16 @@ function BudgetBody({ budget, date, rows }: { budget: number; date: string; rows
       <ProgressBar value={spent} max={budget} />
       <div className="mt-2 flex items-baseline justify-between gap-2 text-xs">
         <span className="text-mid">
-          spent <span className="font-mono text-ink">{fmtCost(spent)}</span>
+          {t('dashboard.budgetSpent')} <span className="font-mono text-ink">{fmtCost(spent)}</span>
           {partial && (
-            <span className="text-danger" title="A model without a price-table entry ran this month — spend is a floor, not a total.">
+            <span className="text-danger" title={t('dashboard.budgetPartialTitle')}>
               *
             </span>
           )}{' '}
-          of <span className="font-mono">{fmtCost(budget)}</span>
+          {t('dashboard.budgetOf')} <span className="font-mono">{fmtCost(budget)}</span>
         </span>
         <span className={cn('font-mono text-[12px]', over ? 'text-danger' : 'text-ok')}>
-          on pace for {fmtCost(pace)}
+          {tf('dashboard.onPaceFor', { amount: fmtCost(pace) })}
         </span>
       </div>
     </div>
@@ -232,10 +237,11 @@ function BudgetBody({ budget, date, rows }: { budget: number; date: string; rows
 
 function ActivityCard() {
   const activity = useQuery(activityQuery());
+  const { t } = useT();
   return (
-    <Card title="activity" bodyClassName="p-1.5">
+    <Card title={t('dashboard.activity')} bodyClassName="p-1.5">
       {activity.isLoading && <SkeletonRows n={4} />}
-      {activity.data?.length === 0 && <EmptyState title="No hook events yet." />}
+      {activity.data?.length === 0 && <EmptyState title={t('dashboard.noHookEvents')} />}
       {activity.data?.slice(0, 10).map((a) => {
         const Icon =
           a.event === 'UserPromptSubmit' ? MessageSquare
@@ -267,14 +273,15 @@ function truncate(s: string, n: number): string {
 function NowCard() {
   const { sessions } = useLive();
   const now = useNow(1000);
+  const { t, tf } = useT();
   const working = sessions.filter((s) => s.status === 'working');
 
   return (
-    <Card title="now" bodyClassName="p-2">
+    <Card title={t('dashboard.now')} bodyClassName="p-2">
       {sessions.length === 0 && (
         <div className="flex items-center gap-3 px-2 py-4">
           <span className="h-2 w-2 rounded-full bg-dim" />
-          <span className="text-sm text-mid">All quiet — no Claude Code sessions running.</span>
+          <span className="text-sm text-mid">{t('dashboard.allQuiet')}</span>
         </div>
       )}
       {sessions.map((s) => (
@@ -299,15 +306,15 @@ function NowCard() {
             )}
           </span>
           {s.status === 'working' ? (
-            <span className="shrink-0 font-mono text-xs text-claude">working {fmtElapsed(now - s.since)}</span>
+            <span className="shrink-0 font-mono text-xs text-claude">{tf('dashboard.workingElapsed', { elapsed: fmtElapsed(now - s.since) })}</span>
           ) : (
-            <Badge tone={s.status === 'idle' ? 'ok' : 'default'}>{s.status === 'idle' ? 'waiting for you' : 'open'}</Badge>
+            <Badge tone={s.status === 'idle' ? 'ok' : 'default'}>{s.status === 'idle' ? t('dashboard.waitingForYou') : t('dashboard.open')}</Badge>
           )}
         </Link>
       ))}
       {working.length > 1 && (
         <div className="px-2 pb-1 pt-1.5 font-mono text-[11px] text-dim">
-          {working.length} sessions computing in parallel
+          {tf('dashboard.parallelSessions', { n: working.length })}
         </div>
       )}
     </Card>

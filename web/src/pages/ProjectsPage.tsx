@@ -4,10 +4,11 @@ import { useQuery } from '@tanstack/react-query';
 import { ChevronRight } from 'lucide-react';
 import { projectsQuery } from '../lib/queries';
 import type { Project } from '../lib/types';
-import { fmtCost, fmtCount, fmtDuration, fmtRelative } from '../lib/format';
+import { fmtCost, fmtCount, fmtDuration, fmtRelative, plural } from '../lib/format';
 import { projectColor } from '../lib/colors';
 import { Badge, EmptyState, SkeletonRows } from '../components/ui';
 import { OpenInButtons } from '../components/actions';
+import { useT } from '../lib/i18n';
 import { cn } from '../lib/cn';
 
 interface Group {
@@ -24,6 +25,7 @@ interface Group {
 const GRID = 'grid grid-cols-[minmax(0,1fr)_92px_72px_72px_92px_96px_118px] items-center gap-x-3';
 
 export default function ProjectsPage() {
+  const { t } = useT();
   const q = useQuery(projectsQuery());
   const [filter, setFilter] = useState('');
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
@@ -73,23 +75,23 @@ export default function ProjectsPage() {
       <input
         value={filter}
         onChange={(e) => setFilter(e.target.value)}
-        placeholder="Filter projects…"
+        placeholder={t('projects.filterPlaceholder')}
         className="w-64 rounded-md border border-line bg-surface px-3 py-1.5 text-[14px] text-ink outline-none placeholder:text-dim"
       />
       {q.isLoading && <SkeletonRows n={8} />}
-      {!q.isLoading && groups.length === 0 && <EmptyState title="No projects yet" />}
+      {!q.isLoading && groups.length === 0 && <EmptyState title={t('projects.emptyTitle')} />}
 
       {!q.isLoading && groups.length > 0 && (
         <div className="overflow-x-auto rounded-md border border-line bg-surface">
           <div className="min-w-[860px]">
             {/* single header row instead of labels repeated on every card */}
             <div className={cn(GRID, 'border-b border-line px-4 py-2')}>
-              <span className="microlabel">project</span>
-              <span className="microlabel text-right">claude</span>
-              <span className="microlabel text-right">sessions</span>
-              <span className="microlabel text-right">prompts</span>
-              <span className="microlabel text-right">est. cost</span>
-              <span className="microlabel text-right">active</span>
+              <span className="microlabel">{t('projects.project')}</span>
+              <span className="microlabel text-right">{t('projects.claude')}</span>
+              <span className="microlabel text-right">{t('projects.sessions')}</span>
+              <span className="microlabel text-right">{t('projects.prompts')}</span>
+              <span className="microlabel text-right">{t('projects.estCost')}</span>
+              <span className="microlabel text-right">{t('projects.active')}</span>
               <span aria-hidden />
             </div>
 
@@ -120,7 +122,7 @@ export default function ProjectsPage() {
                         className="flex items-center justify-end gap-1 rounded px-1 py-1 font-mono text-[11px] uppercase tracking-wider text-dim hover:text-ink"
                       >
                         <ChevronRight size={11} className={cn('transition-transform', isOpen && 'rotate-90')} />
-                        {g.children.length} worktree{g.children.length === 1 ? '' : 's'}
+                        {plural(g.children.length, 'worktree')}
                       </button>
                     ) : (
                       <span aria-hidden />
@@ -137,7 +139,7 @@ export default function ProjectsPage() {
                           className={cn(GRID, 'border-b border-line/40 bg-surface2/30 px-4 py-1.5 last:border-0 hover:bg-surface2')}
                         >
                           <span className="flex min-w-0 items-center gap-2 pl-6">
-                            <Badge className="max-w-[220px] shrink-0 truncate">{c.worktreeBranch ?? 'worktree'}</Badge>
+                            <Badge className="max-w-[220px] shrink-0 truncate">{c.worktreeBranch ?? t('projects.worktreeFallback')}</Badge>
                           </span>
                           <Cell className="text-claude/80">{fmtDuration(c.claudeMs)}</Cell>
                           <Cell className="text-mid">{fmtCount(c.sessionCount)}</Cell>
