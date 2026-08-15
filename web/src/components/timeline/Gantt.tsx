@@ -1,7 +1,23 @@
 /* Day-view gantt: one row per session, grouped under project headers.
  * SVG marks over an HTML label gutter; amber underlay = you active,
- * cyan blocks = Claude working, ticks = prompts, vertical line = now. */
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+ * cyan blocks = Claude working, ticks = prompts, vertical line = now.
+ *
+ * Interaction state deliberately does NOT live in this component: hover and
+ * brush-drag fire at pointer frequency, and a setState here re-renders every
+ * mark in the SVG per event. The tooltip owns its own state in a sibling
+ * (imperative handle), and the brush paints via direct attribute writes,
+ * committing to React state only on pointerup. */
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from 'react';
 import { useSearchParams } from 'react-router';
 import { Cloud } from 'lucide-react';
 import type { TimelineDay, TimelineSession } from '../../lib/types';
@@ -104,6 +120,44 @@ interface Tip {
   content: ReactNode;
 }
 
+export interface TipHandle {
+  show: (e: React.PointerEvent, content: ReactNode) => void;
+  hide: () => void;
+}
+
+/**
+ * Tooltip layer with its own state, so hovering a mark re-renders THIS tiny
+ * component instead of the whole SVG above it.
+ */
+const TipLayer = forwardRef<TipHandle, { hostRef: RefObject<HTMLDivElement | null> }>(
+  function TipLayer({ hostRef }, ref) {
+    const [tip, setTip] = useState<Tip | null>(null);
+    useImperativeHandle(
+      ref,
+      () => ({
+        show: (e, content) => {
+          const host = hostRef.current?.getBoundingClientRect();
+          if (host) setTip({ x: e.clientX - host.left, y: e.clientY - host.top, content });
+        },
+        hide: () => setTip(null),
+      }),
+      [hostRef]
+    );
+    if (!tip) return null;
+    return (
+      <div
+        className="tip-in pointer-events-none absolute z-30 rounded border border-line2 bg-raise px-2.5 py-1.5 font-mono text-[12px] shadow-xl shadow-black/40"
+        style={{
+          left: Math.min(tip.x + 14, (hostRef.current?.clientWidth ?? 600) - 320),
+          top: tip.y + 14,
+        }}
+      >
+        {tip.content}
+      </div>
+    );
+  }
+);
+
 /** Measured pixel width so the SVG renders 1:1 — scaling a viewBox with
  * preserveAspectRatio="none" would distort every text glyph. */
 function useElementWidth<T extends HTMLElement>(): [React.RefObject<T | null>, number] {
@@ -123,7 +177,7 @@ function useElementWidth<T extends HTMLElement>(): [React.RefObject<T | null>, n
 export function Gantt({ day, full24, laneMode = 'project' }: { day: TimelineDay; full24: boolean; laneMode?: LaneMode }) {
   const now = useNow(30_000);
   const [, setParams] = useSearchParams();
-  const [tip, setTip] = useState<Tip | null>(null);
+  const tipRef = useRef<TipHandle>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const rows = useMemo(() => buildRows(day.sessions, laneMode), [day.sessions, laneMode]);
@@ -140,40 +194,75 @@ export function Gantt({ day, full24, laneMode = 'project' }: { day: TimelineDay;
   const ticks = ticksFor(lo, hi, W);
   const bodyH = rows.reduce((h, r) => h + (r.kind === 'header' ? HEADER_H : ROW_H), 0);
 
-  /* brush-zoom drag state — px coords within the svg */
-  const [drag, setDrag] = useState<{ start: number; cur: number } | null>(null);
+  /* Brush-zoom: drag state in a ref, painted by direct attribute writes.
+   * The old version measured getBoundingClientRect() AND setState on every
+   * pointermove — a forced layout followed by a full SVG re-render, at
+   * pointer-event frequency. The svg's left edge is cached at pointerdown. */
+  const dragRef = useRef<{ start: number; cur: number; svgLeft: number } | null>(null);
   const dragMoved = useRef(false);
   const svgRef = useRef<SVGSVGElement>(null);
-  const svgX = (e: React.PointerEvent) => {
-    const r = svgRef.current?.getBoundingClientRect();
-    return r ? Math.max(0, Math.min(e.clientX - r.left, W)) : 0;
+  const brushRef = useRef<SVGGElement>(null);
+  const brushFill = useRef<SVGRectElement>(null);
+  const brushL = useRef<SVGLineElement>(null);
+  const brushR = useRef<SVGLineElement>(null);
+
+  const paintBrush = () => {
+    const d = dragRef.current;
+    const g = brushRef.current;
+    if (!g) return;
+    if (!d || Math.abs(d.cur - d.start) <= 2) {
+      g.setAttribute('visibility', 'hidden');
+      return;
+    }
+    const x1 = Math.min(d.start, d.cur);
+    const x2 = Math.max(d.start, d.cur);
+    g.setAttribute('visibility', 'visible');
+    brushFill.current?.setAttribute('x', String(x1));
+    brushFill.current?.setAttribute('width', String(x2 - x1));
+    brushL.current?.setAttribute('x1', String(x1));
+    brushL.current?.setAttribute('x2', String(x1));
+    brushR.current?.setAttribute('x1', String(x2));
+    brushR.current?.setAttribute('x2', String(x2));
   };
+
   const onPlotPointerDown = (e: React.PointerEvent<SVGSVGElement>) => {
     if (e.button !== 0) return;
     dragMoved.current = false;
-    setDrag({ start: svgX(e), cur: svgX(e) });
+    // one measurement per drag, not one per move
+    const left = svgRef.current?.getBoundingClientRect().left ?? 0;
+    const px = Math.max(0, Math.min(e.clientX - left, W));
+    dragRef.current = { start: px, cur: px, svgLeft: left };
     e.currentTarget.setPointerCapture(e.pointerId);
+    paintBrush();
   };
   const onPlotPointerMove = (e: React.PointerEvent<SVGSVGElement>) => {
-    if (!drag) return;
-    setDrag({ start: drag.start, cur: svgX(e) });
+    const d = dragRef.current;
+    if (!d) return;
+    d.cur = Math.max(0, Math.min(e.clientX - d.svgLeft, W));
+    paintBrush();
   };
   const onPlotPointerUp = () => {
-    if (!drag) return;
-    const dist = Math.abs(drag.cur - drag.start);
+    const d = dragRef.current;
+    if (!d) return;
+    const dist = Math.abs(d.cur - d.start);
     // < 6px = click, let the mark's own handler run; otherwise suppress it
     if (dist >= 6) dragMoved.current = true;
     if (dist > 12) {
-      let t1 = timeOf(Math.min(drag.start, drag.cur));
-      let t2 = timeOf(Math.max(drag.start, drag.cur));
+      let t1 = timeOf(Math.min(d.start, d.cur));
+      let t2 = timeOf(Math.max(d.start, d.cur));
       if (t2 - t1 < MIN_ZOOM_MS) {
         const mid = (t1 + t2) / 2;
         t1 = mid - MIN_ZOOM_MS / 2;
         t2 = mid + MIN_ZOOM_MS / 2;
       }
-      setZoom([t1, t2]);
+      setZoom([t1, t2]); // the ONLY state commit of the whole gesture
     }
-    setDrag(null);
+    dragRef.current = null;
+    paintBrush();
+  };
+  const onPlotPointerCancel = () => {
+    dragRef.current = null;
+    paintBrush();
   };
 
   const openSession = (id: string, promptUuid?: string | null) => {
@@ -186,11 +275,10 @@ export function Gantt({ day, full24, laneMode = 'project' }: { day: TimelineDay;
     });
   };
 
-  const showTip = (e: React.PointerEvent, content: ReactNode) => {
-    const host = scrollRef.current?.getBoundingClientRect();
-    if (!host) return;
-    setTip({ x: e.clientX - host.left, y: e.clientY - host.top, content });
-  };
+  const showTip = useCallback((e: React.PointerEvent, content: ReactNode) => {
+    tipRef.current?.show(e, content);
+  }, []);
+  const hideTip = useCallback(() => tipRef.current?.hide(), []);
 
   let yCursor = 0;
 
@@ -239,7 +327,7 @@ export function Gantt({ day, full24, laneMode = 'project' }: { day: TimelineDay;
             onPointerDown={onPlotPointerDown}
             onPointerMove={onPlotPointerMove}
             onPointerUp={onPlotPointerUp}
-            onPointerCancel={() => setDrag(null)}
+            onPointerCancel={onPlotPointerCancel}
             onDoubleClick={() => setZoom(null)}
             onClickCapture={(e) => {
               if (dragMoved.current) {
@@ -287,7 +375,7 @@ export function Gantt({ day, full24, laneMode = 'project' }: { day: TimelineDay;
                           <div>{fmtClock(g.start)}–{fmtClock(g.end)} · {fmtDuration(g.end - g.start)}</div>
                         </>
                       ))}
-                      onPointerLeave={() => setTip(null)}
+                      onPointerLeave={hideTip}
                     />
                   ))}
                   {/* claude turn blocks */}
@@ -306,7 +394,7 @@ export function Gantt({ day, full24, laneMode = 'project' }: { day: TimelineDay;
                             {t.promptText && <div className="mt-1 max-w-[280px] truncate text-ink/80">“{t.promptText.slice(0, 140)}”</div>}
                           </>
                         ))}
-                        onPointerLeave={() => setTip(null)}
+                        onPointerLeave={hideTip}
                       />
                       {t.contLeft && <text x={x(t.start) - 2} y={mid + 3.5} fontSize={9} textAnchor="end" style={{ fill: CLAUDE_COLOR }}>‹</text>}
                       {t.contRight && <text x={x(t.end) + 2} y={mid + 3.5} fontSize={9} style={{ fill: CLAUDE_COLOR }}>›</text>}
@@ -327,7 +415,7 @@ export function Gantt({ day, full24, laneMode = 'project' }: { day: TimelineDay;
                             <div className="mt-0.5 max-w-[280px] truncate text-ink/80">“{p.text.slice(0, 140)}”</div>
                           </>
                         ))}
-                        onPointerLeave={() => setTip(null)}
+                        onPointerLeave={hideTip}
                       />
                     </g>
                   ))}
@@ -335,18 +423,13 @@ export function Gantt({ day, full24, laneMode = 'project' }: { day: TimelineDay;
               );
             })}
 
-            {/* brush selection */}
-            {drag && Math.abs(drag.cur - drag.start) > 2 && (
-              <g pointerEvents="none">
-                <rect
-                  x={Math.min(drag.start, drag.cur)} y={AXIS_H}
-                  width={Math.abs(drag.cur - drag.start)} height={bodyH}
-                  style={{ fill: CLAUDE_COLOR }} opacity={0.08}
-                />
-                <line x1={Math.min(drag.start, drag.cur)} x2={Math.min(drag.start, drag.cur)} y1={AXIS_H} y2={AXIS_H + bodyH} style={{ stroke: CLAUDE_COLOR }} strokeWidth={1} opacity={0.5} />
-                <line x1={Math.max(drag.start, drag.cur)} x2={Math.max(drag.start, drag.cur)} y1={AXIS_H} y2={AXIS_H + bodyH} style={{ stroke: CLAUDE_COLOR }} strokeWidth={1} opacity={0.5} />
-              </g>
-            )}
+            {/* brush selection — always mounted; x/width painted imperatively
+                during the drag so pointermove never re-renders the SVG */}
+            <g ref={brushRef} pointerEvents="none" visibility="hidden">
+              <rect ref={brushFill} x={0} y={AXIS_H} width={0} height={bodyH} style={{ fill: CLAUDE_COLOR }} opacity={0.08} />
+              <line ref={brushL} x1={0} x2={0} y1={AXIS_H} y2={AXIS_H + bodyH} style={{ stroke: CLAUDE_COLOR }} strokeWidth={1} opacity={0.5} />
+              <line ref={brushR} x1={0} x2={0} y1={AXIS_H} y2={AXIS_H + bodyH} style={{ stroke: CLAUDE_COLOR }} strokeWidth={1} opacity={0.5} />
+            </g>
 
             {/* now line */}
             {isToday(day.date) && now >= lo && now <= hi && (
@@ -359,17 +442,7 @@ export function Gantt({ day, full24, laneMode = 'project' }: { day: TimelineDay;
         </div>
       </div>
 
-      {tip && (
-        <div
-          className="tip-in pointer-events-none absolute z-30 rounded border border-line2 bg-raise px-2.5 py-1.5 font-mono text-[12px] shadow-xl shadow-black/40"
-          style={{
-            left: Math.min(tip.x + 14, (scrollRef.current?.clientWidth ?? 600) - 320),
-            top: tip.y + 14,
-          }}
-        >
-          {tip.content}
-        </div>
-      )}
+      <TipLayer ref={tipRef} hostRef={scrollRef} />
 
       {/* legend */}
       <div className="mt-3 flex items-center gap-4 border-t border-line pt-2.5 font-mono text-[11px] uppercase tracking-wider text-dim">
