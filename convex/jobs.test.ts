@@ -2,17 +2,18 @@ import { convexTest } from "convex-test";
 import { expect, test, beforeEach } from "vitest";
 import schema from "./schema";
 import { api } from "./_generated/api";
+import { asAllowedUser, TEST_EMAIL } from "./lib/testUser";
 
 const KEY = "k";
 
 beforeEach(() => {
   process.env.PULSE_AGENT_KEY = KEY;
-  process.env.ALLOWED_GITHUB_LOGINS = "pldagenais";
+  process.env.ALLOWED_USERS = TEST_EMAIL;
 });
 
 test("claimNext hands out each queued job exactly once", async () => {
   const t = convexTest(schema);
-  const asUser = t.withIdentity({ nickname: "pldagenais" });
+  const asUser = await asAllowedUser(t);
   await asUser.mutation(api.jobs.enqueue, { kind: "run", payload: { prompt: "hi" } });
 
   const first = await t.mutation(api.jobs.claimNext, { agentKey: KEY });
@@ -32,7 +33,7 @@ test("enqueue requires a signed-in allow-listed user", async () => {
 
 test("update records terminal state and finish time", async () => {
   const t = convexTest(schema);
-  const asUser = t.withIdentity({ nickname: "pldagenais" });
+  const asUser = await asAllowedUser(t);
   const id = await asUser.mutation(api.jobs.enqueue, { kind: "run", payload: {} });
 
   await t.mutation(api.jobs.update, {

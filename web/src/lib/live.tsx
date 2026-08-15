@@ -1,9 +1,14 @@
 /* Live layer: one EventSource to /api/live feeding (a) an in-memory "now"
  * state (never through react-query) and (b) debounced query invalidation on
- * data-change signals. Reconnects on watchdog timeout, tab focus, network. */
+ * data-change signals. Reconnects on watchdog timeout, tab focus, network.
+ *
+ * Cloud mode has no SSE endpoint — Vercel serves static files only — so it
+ * polls the mirrored `live` snapshot instead, on the agent's own 15s cadence. */
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { LIVE_KEYS } from './queries';
+import { MODE } from './source';
+import { api } from './api';
 import type { LiveSession, IngestProgress } from './types';
 
 export type ConnectionState = 'connecting' | 'live' | 'reconnecting';
@@ -21,8 +26,55 @@ export function useLive(): LiveState {
 }
 
 const WATCHDOG_MS = 90_000;
+const CLOUD_POLL_MS = 15_000;
+
+/** Cloud mode: poll the mirrored live snapshot; no SSE exists to connect to. */
+function CloudLiveProvider({ children }: { children: ReactNode }) {
+  const queryClient = useQueryClient();
+  const [state, setState] = useState<LiveState>({ connection: 'connecting', sessions: [], ingest: null });
+
+  useEffect(() => {
+    let disposed = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const tick = async () => {
+      if (timer) clearTimeout(timer); // a refocus must not start a second chain
+      timer = null;
+      try {
+        const sessions = await api.get<LiveSession[] | null>('/api/live');
+        if (disposed) return;
+        setState({ connection: 'live', sessions: sessions ?? [], ingest: null });
+        for (const key of LIVE_KEYS) {
+          queryClient.invalidateQueries({ queryKey: key, refetchType: 'active' });
+        }
+      } catch {
+        if (!disposed) setState((s) => ({ ...s, connection: 'reconnecting' }));
+      }
+      if (!disposed) timer = setTimeout(tick, CLOUD_POLL_MS);
+    };
+
+    tick();
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') tick();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+
+    return () => {
+      disposed = true;
+      if (timer) clearTimeout(timer);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [queryClient]);
+
+  return <LiveContext.Provider value={state}>{children}</LiveContext.Provider>;
+}
 
 export function LiveProvider({ children }: { children: ReactNode }) {
+  if (MODE === 'cloud') return <CloudLiveProvider>{children}</CloudLiveProvider>;
+  return <LocalLiveProvider>{children}</LocalLiveProvider>;
+}
+
+function LocalLiveProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
   const [state, setState] = useState<LiveState>({ connection: 'connecting', sessions: [], ingest: null });
   const esRef = useRef<EventSource | null>(null);

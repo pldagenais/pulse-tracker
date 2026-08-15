@@ -14,6 +14,7 @@ import type * as http from "../http.js";
 import type * as jobs from "../jobs.js";
 import type * as journal from "../journal.js";
 import type * as lib_guards from "../lib/guards.js";
+import type * as lib_testUser from "../lib/testUser.js";
 import type * as prompts from "../prompts.js";
 import type * as sessions from "../sessions.js";
 import type * as snapshots from "../snapshots.js";
@@ -32,6 +33,7 @@ declare const fullApi: ApiFromModules<{
   jobs: typeof jobs;
   journal: typeof journal;
   "lib/guards": typeof lib_guards;
+  "lib/testUser": typeof lib_testUser;
   prompts: typeof prompts;
   sessions: typeof sessions;
   snapshots: typeof snapshots;

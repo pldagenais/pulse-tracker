@@ -1,11 +1,12 @@
+import { getAuthUserId } from "@convex-dev/auth/server";
 import type { GenericQueryCtx, GenericMutationCtx } from "convex/server";
 import type { DataModel } from "../_generated/dataModel";
 
 type Ctx = GenericQueryCtx<DataModel> | GenericMutationCtx<DataModel>;
 
 /**
- * Allow-list check for GitHub logins. Fails closed: an empty list or an
- * empty login denies access, so a missing env var can never open the app up.
+ * Allow-list check. Fails closed: an empty list or an empty identity denies
+ * access, so a missing env var can never open the app up.
  */
 export function isAllowed(login: string, allowList: string): boolean {
   if (!login) return false;
@@ -18,19 +19,20 @@ export function isAllowed(login: string, allowList: string): boolean {
 
 /**
  * Guard for user-facing queries and mutations. Throws unless the caller is
- * signed in with an allow-listed GitHub account. Returns the login.
+ * signed in as an allow-listed user. Returns the matched identity.
+ *
+ * The identity comes from the `users` row, not from the JWT: Convex Auth signs
+ * only sub/iss/aud/iat/exp, so `getUserIdentity()` carries no email, name, or
+ * GitHub login to match against.
  */
 export async function requireUser(ctx: Ctx): Promise<string> {
-  const identity = await ctx.auth.getUserIdentity();
-  if (!identity) throw new Error("Not signed in");
-  const login =
-    (identity.nickname as string | undefined) ??
-    (identity.preferredUsername as string | undefined) ??
-    "";
-  if (!isAllowed(login, process.env.ALLOWED_GITHUB_LOGINS ?? "")) {
-    throw new Error("Account not permitted");
-  }
-  return login;
+  const userId = await getAuthUserId(ctx);
+  if (!userId) throw new Error("Not signed in");
+  const user = await ctx.db.get(userId);
+  const allowList = process.env.ALLOWED_USERS ?? process.env.ALLOWED_GITHUB_LOGINS ?? "";
+  const email = user?.email ?? "";
+  if (!isAllowed(email, allowList)) throw new Error("Account not permitted");
+  return email;
 }
 
 /**

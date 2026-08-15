@@ -2,9 +2,13 @@ import { convexTest } from "convex-test";
 import { expect, test, beforeEach } from "vitest";
 import schema from "./schema";
 import { api } from "./_generated/api";
+import { asAllowedUser, TEST_EMAIL } from "./lib/testUser";
 
 beforeEach(() => {
-  process.env.ALLOWED_GITHUB_LOGINS = "pldagenais";
+  // Convex Auth's JWT carries no login claim, so the allow-list keys on the
+  // email stored in the users row.
+  process.env.ALLOWED_USERS = TEST_EMAIL;
+  process.env.ALLOWED_GITHUB_LOGINS = "";
 });
 
 async function seedSnapshot(t: ReturnType<typeof convexTest>) {
@@ -29,7 +33,7 @@ test("reads are refused without a signed-in user", async () => {
 test("an allow-listed user reads the snapshot payload verbatim", async () => {
   const t = convexTest(schema);
   await seedSnapshot(t);
-  const asUser = t.withIdentity({ nickname: "pldagenais" });
+  const asUser = await asAllowedUser(t);
   expect(await asUser.query(api.snapshots.get, { key: "projects" })).toEqual([
     { id: 1, name: "Pulse" },
   ]);
@@ -38,7 +42,7 @@ test("an allow-listed user reads the snapshot payload verbatim", async () => {
 test("a signed-in but non-allow-listed user is refused", async () => {
   const t = convexTest(schema);
   await seedSnapshot(t);
-  const asOther = t.withIdentity({ nickname: "intruder" });
+  const asOther = await asAllowedUser(t, "intruder@example.com");
   await expect(asOther.query(api.snapshots.get, { key: "projects" })).rejects.toThrow(
     /not permitted/i,
   );
@@ -46,7 +50,7 @@ test("a signed-in but non-allow-listed user is refused", async () => {
 
 test("missing snapshot returns null rather than throwing", async () => {
   const t = convexTest(schema);
-  const asUser = t.withIdentity({ nickname: "pldagenais" });
+  const asUser = await asAllowedUser(t);
   expect(await asUser.query(api.snapshots.get, { key: "nope" })).toBeNull();
 });
 
@@ -68,6 +72,6 @@ test("sessions.list returns payloads newest first", async () => {
       });
     }
   });
-  const asUser = t.withIdentity({ nickname: "pldagenais" });
+  const asUser = await asAllowedUser(t);
   expect(await asUser.query(api.sessions.list, {})).toEqual([{ id: "new" }, { id: "old" }]);
 });
