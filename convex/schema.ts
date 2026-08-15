@@ -1,5 +1,6 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
+import { authTables } from "@convex-dev/auth/server";
 
 /**
  * Cloud mirror of the local Pulse database.
@@ -13,6 +14,9 @@ import { v } from "convex/values";
  * ships as a precomputed snapshot.
  */
 export default defineSchema({
+  // users / authSessions / authAccounts etc. required by @convex-dev/auth
+  ...authTables,
+
   snapshots: defineTable({
     key: v.string(),
     kind: v.string(),
