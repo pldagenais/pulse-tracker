@@ -1,3 +1,6 @@
+import { MODE } from './source';
+import { callRemote } from './convexClient';
+
 export class ApiError extends Error {
   status: number;
   constructor(status: number, message: string) {
@@ -7,6 +10,12 @@ export class ApiError extends Error {
 }
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
+  // Cloud mode: the same call is served from the Convex mirror. Branching
+  // here keeps queries.ts and every component identical across both modes.
+  if (MODE === 'cloud') {
+    const body = typeof init?.body === 'string' ? JSON.parse(init.body) : undefined;
+    return (await callRemote(url, init?.method ?? 'GET', body)) as T;
+  }
   const res = await fetch(url, init);
   let body: { ok?: boolean; data?: T; error?: string } | null = null;
   try {

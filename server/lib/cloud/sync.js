@@ -11,6 +11,7 @@ import { CLOUD_URL, CLOUD_KEY, CLOUD_SYNC_DAYS } from '../../config.js';
 import { getMeta, setMeta } from '../db.js';
 import { todayKey, addDays, safeJsonParse } from '../util.js';
 import { hashPayload, staticSnapshots, daySnapshots } from './keys.js';
+import { redactSecrets } from './redact.js';
 import { createQueuePoller } from './jobs.js';
 import { log } from '../logger.js';
 
@@ -136,7 +137,8 @@ export function createCloudSync(db, { port, appVersion, jobs }) {
         sessionTitle: r.session_title ?? null,
         ts: r.ts,
         kind: r.kind,
-        text: r.text ?? '',
+        // credentials sometimes get pasted into prompts — never mirror them
+        text: redactSecrets(r.text ?? ''),
         charCount: r.char_count ?? 0,
       })),
     });

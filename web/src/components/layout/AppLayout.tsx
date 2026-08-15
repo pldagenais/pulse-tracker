@@ -7,6 +7,8 @@ import {
 import { useTheme } from '../../lib/theme';
 import { LivePill } from './LivePill';
 import { AlertBell } from './AlertBell';
+import { OfflineBanner } from './OfflineBanner';
+import { MODE } from '../../lib/source';
 import { CommandPalette } from './CommandPalette';
 import { ShortcutHelp } from './ShortcutHelp';
 import { useCompletionNotifier } from './notifier';
@@ -113,7 +115,8 @@ export function AppLayout() {
           <div className="microlabel mt-0.5 hidden lg:block">claude code tracker</div>
         </div>
         <nav className="flex-1 space-y-0.5 p-2">
-          {NAV.map((n) => (
+          {/* Manage drives local processes and files — meaningless remotely */}
+          {NAV.filter((n) => MODE === 'local' || n.to !== '/manage').map((n) => (
             <NavLink
               key={n.to}
               to={n.to}
@@ -175,6 +178,7 @@ export function AppLayout() {
             <LivePill />
           </div>
         </header>
+        <OfflineBanner />
         {indexing && ingest && (
           <div className="border-b border-line bg-surface2 px-5 py-2 print:hidden">
             <div className="flex items-center justify-between font-mono text-[12px] text-mid">
