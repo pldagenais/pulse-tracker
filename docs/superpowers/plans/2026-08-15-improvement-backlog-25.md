@@ -395,9 +395,11 @@ git commit -am "fix(ui): never present an unpriced model as costing zero"
 
 ---
 
-## Batch 4 — Read-path performance
+## Batch 4 — Read-path performance ✅ SHIPPED 2026-08-15
 
 Depends on batches 1–3: the `rangeDaily` shape and the live store must be settled before optimizing around them.
+
+**Shipped as `2e2a96d`, `b84cd70`.** Notes: `records()` benched 8.4ms cold → 0.016ms memoized with identical output; the data-version counter is bumped by `recomputeSessions` and lives in `meta`. The hook-burst test collapsed 20 rapid events into exactly 2 SSE frames, final state correct. The Gantt's memo'd `SessionRow` split was **deliberately skipped**: with hover and drag out of React state the root no longer re-renders during interaction at all, so the remaining renders (30s tick, zoom commit) are one-per-action and legitimately full-chart. Tooltip and brush verified live through the new imperative paths.
 
 ### Task 12: Halve and memoize `records()`
 
@@ -471,9 +473,11 @@ git commit -am "perf(web): keep Gantt hover and brush state out of the chart roo
 
 ---
 
-## Batch 5 — Design system consistency
+## Batch 5 — Design system consistency ✅ SHIPPED 2026-08-15
 
 Introduces the shared primitives (`StatCard.topRight`, `<Switch>`, `ProgressBar` on `scaleX`) that Batch 6's reduced-motion rules then name.
+
+**Shipped as `01a67d7`.** Notes: Mission KPIs verified at computed 29px JetBrains Mono with `.microlabel` labels; `card-title` now greps only to `ui.tsx`. All four toggles are on `<Switch>` (verified: transitions `transform`, never `left`). Task 18's second half shipped here — vite bakes `__BUILD_ID__` and emits `/build.json`; the app polls 5-min + on-focus and offers a reload toast, never forcing one. (The sw.js half shipped in Batch 1.)
 
 ### Task 15: Rebuild Mission Control's rate-window trio on `StatCard`
 
@@ -582,9 +586,11 @@ git commit -am "fix(web): theme the offline shell and notify open tabs of new bu
 
 ---
 
-## Batch 6 — Accessibility
+## Batch 6 — Accessibility ✅ SHIPPED 2026-08-15
 
 Depends on Batch 2 (LivePill's label shape) and Batch 5 (the `Switch` and `ProgressBar` the reduced-motion rules now name).
+
+**Shipped as `a92a812`.** Notes: the pill's live region strips the elapsed timer so SRs announce state changes, not a countdown. The Interrupt buttons render at 40% opacity *always* (the plan's "an emergency stop should not hide" option), not opacity-0. The reduced-motion broad reset uses near-zero durations rather than `animation: none` so one-shot fill-mode animations land on their end state. Live regions verified in the a11y tree; all four reduced-motion rule groups verified in the served CSS.
 
 ### Task 19: Add `.sr-only` and announce live state and route changes
 
