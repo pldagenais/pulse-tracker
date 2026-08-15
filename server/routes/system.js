@@ -158,6 +158,13 @@ export function mountSystem(app, ctx) {
     ok(res, { reparsing: p });
   });
 
+  // Cheap liveness probe. The cloud mirror answers the same path from the
+  // agent heartbeat rather than the status snapshot; served here too so the
+  // path means the same thing in both modes.
+  app.get('/api/heartbeat', (req, res) => {
+    ok(res, { lastHeartbeatAt: Date.now() });
+  });
+
   app.get('/api/status', (req, res) => {
     const count = (t) => db.prepare(`SELECT count(*) c FROM ${t}`).get().c;
     let dbSize = 0;

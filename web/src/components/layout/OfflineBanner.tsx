@@ -12,8 +12,10 @@ const STALE_MS = 120_000;
  */
 export function OfflineBanner() {
   const q = useQuery({
-    queryKey: ['agent-status'],
-    queryFn: () => api.get<{ lastHeartbeatAt: number } | null>('/api/status'),
+    queryKey: ['agent-heartbeat'],
+    // not /api/status: that returns null until the status snapshot has synced,
+    // and the banner has to work in exactly that situation
+    queryFn: () => api.get<{ lastHeartbeatAt: number | null } | null>('/api/heartbeat'),
     refetchInterval: 60_000,
     enabled: MODE === 'cloud',
   });

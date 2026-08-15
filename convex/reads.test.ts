@@ -54,6 +54,30 @@ test("missing snapshot returns null rather than throwing", async () => {
   expect(await asUser.query(api.snapshots.get, { key: "nope" })).toBeNull();
 });
 
+test("agentStatus.get returns null when the status snapshot is absent", async () => {
+  const t = convexTest(schema);
+  await t.run(async (ctx) => {
+    // heartbeat present, status snapshot NOT yet mirrored — the state a fresh
+    // deploy is in for its first seconds, and permanently if /api/status throws
+    await ctx.db.insert("agent", {
+      key: "status",
+      lastHeartbeatAt: 5,
+      version: "1.0.0",
+      ingestPhase: "watching",
+      liveCount: 0,
+      dbSessions: 0,
+      syncedThrough: 5,
+    });
+  });
+  const asUser = await asAllowedUser(t);
+  // must be null, not a partial object: StatusPage reads `d?.watcher.watching`,
+  // which only short-circuits when d itself is nullish
+  expect(await asUser.query(api.agentStatus.get, {})).toBeNull();
+  // ...but the heartbeat must still be readable, or the offline banner goes
+  // blind exactly when the PC is offline
+  expect(await asUser.query(api.agentStatus.heartbeat, {})).toEqual({ lastHeartbeatAt: 5 });
+});
+
 test("sessions.list returns payloads newest first", async () => {
   const t = convexTest(schema);
   await t.run(async (ctx) => {

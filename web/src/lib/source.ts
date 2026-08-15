@@ -77,6 +77,9 @@ export function resolveRemote(path: string): RemoteCall | null {
   }
   if (raw === '/api/jobs') return { fn: 'jobs:list', args: { limit: 20 } };
   if (raw === '/api/status') return { fn: 'agentStatus:get', args: {} };
+  // deliberately not served by snapshots:get — the banner must still work when
+  // the status snapshot is missing, which is when the PC is most likely down
+  if (raw === '/api/heartbeat') return { fn: 'agentStatus:heartbeat', args: {} };
   // There is no SSE in cloud mode; the agent mirrors the live list to a
   // snapshot instead and the client polls it (see LiveProvider).
   if (raw === '/api/live') return snapshot('live');
