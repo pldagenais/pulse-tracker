@@ -40,9 +40,15 @@ Copied verbatim from `CLAUDE.md`; every task's requirements implicitly include t
 
 ---
 
-## Batch 1 — Availability and durable-data bugs
+## Batch 1 — Availability and durable-data bugs ✅ SHIPPED 2026-08-15
 
 Nothing else matters while the server can hang, a page can white-screen, and hand-typed notes can be written onto the wrong session. No dependencies; ship first.
+
+**Shipped as `ffb5ae3`, `b7335b2`, `1806c12`, `ac0fdd8`, `c276328`.** Notes from execution:
+
+- **Task 1 was worse than described.** The day walk is *synchronous*, so an inverted range did not merely spin — it blocked the event loop entirely: a 5s watchdog timer inside the reproduction never fired. HTTP, SSE, ingest and every timer starve. The 400-day clamp in the original write-up was deliberately **not** implemented: termination was the bug, and silently truncating a legitimate 371-day heatmap would be a worse answer than serving it.
+- **Task 5's mechanism was confirmed live:** the process chain is `node.exe → cmd.exe → claude.exe`, so `child.kill()` reaped the middle shell and orphaned the model. The audit's secondary claim that the `close` handler settles early could not be reproduced and was left alone.
+- **Task 4 turned up a bug not in this plan.** The service worker's offline `Response` carried no `cache-control`, so Chrome heuristically cached it per URL: one failed navigation during a server restart left tabs rendering "offline" permanently, while the server answered 200 and same-origin fetches from that very page succeeded. Only unregistering the worker recovered it. Fixed here (`no-store` + a self-healing heartbeat poll) rather than deferred, because it obstructs every future browser verification. **This is also the true cause of the "stale bundle" confusion recorded in the remote-deployment plan** — same heuristic-caching mechanism, and it makes Task 18 more valuable than it looked.
 
 ### Task 1: Bound `rangeDaily`'s day loop and reject inverted ranges
 
