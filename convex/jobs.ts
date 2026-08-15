@@ -21,13 +21,60 @@ export const enqueue = mutation({
   },
 });
 
+/**
+ * The Run page's job list. Rows must carry the same fields as the local
+ * jobRow (prompt, model, endedAt, …) — the queue table stores {kind, payload}
+ * instead, which is a different shape entirely.
+ *
+ * The mirrored /api/jobs snapshot is the real list; remote jobs that the agent
+ * has not claimed yet exist only here, so they are prepended to give the user
+ * immediate feedback instead of a blank list until the next sync.
+ */
 export const list = query({
   args: { limit: v.optional(v.number()) },
   handler: async (ctx, { limit }) => {
     await requireUser(ctx);
-    const jobs = await ctx.db.query("jobs").order("desc").take(Math.min(limit ?? 20, 50));
-    // Same envelope as GET /api/jobs — the SPA reads `.jobs` in both modes.
-    return { jobs, running: jobs.filter((j) => j.status === "running").length };
+    const snap = await ctx.db
+      .query("snapshots")
+      .withIndex("by_key", (q) => q.eq("key", "jobs"))
+      .unique();
+    const mirrored = (snap?.payload ?? { jobs: [], running: 0 }) as {
+      jobs: unknown[];
+      running: number;
+    };
+
+    const queued = await ctx.db
+      .query("jobs")
+      .withIndex("by_status_createdAt", (q) => q.eq("status", "queued"))
+      .order("desc")
+      .take(20);
+    const pending = queued
+      .filter((j) => j.kind === "run")
+      .map((j) => {
+        const p = (j.payload ?? {}) as Record<string, unknown>;
+        return {
+          id: j._id,
+          createdAt: j.createdAt,
+          sessionId: null,
+          resumeOf: null,
+          projectId: p.projectId ?? null,
+          projectPath: p.projectPath ?? null,
+          prompt: String(p.prompt ?? ""),
+          model: p.model ?? null,
+          maxTurns: p.maxTurns ?? null,
+          permissionMode: "default",
+          status: "queued",
+          exitCode: null,
+          startedAt: null,
+          endedAt: null,
+          outputTail: null,
+        };
+      });
+
+    return {
+      jobs: [...pending, ...mirrored.jobs].slice(0, Math.min(limit ?? 50, 50)),
+      running: mirrored.running ?? 0,
+    };
   },
 });
 

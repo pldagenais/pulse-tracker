@@ -45,6 +45,7 @@ export function staticSnapshots(todayKey, addDays) {
     { key: 'claudeai', kind: 'insights', path: '/api/claudeai' },
     { key: 'usagewindow', kind: 'status', path: '/api/usage-window' },
     { key: 'status', kind: 'status', path: '/api/status' },
+    { key: 'jobs', kind: 'status', path: '/api/jobs' },
   ];
 }
 

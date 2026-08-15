@@ -31,6 +31,29 @@ test("enqueue requires a signed-in allow-listed user", async () => {
   ).rejects.toThrow(/not signed in/i);
 });
 
+test("list returns local-shaped rows, unclaimed jobs first", async () => {
+  const t = convexTest(schema);
+  await t.run(async (ctx) => {
+    await ctx.db.insert("snapshots", {
+      key: "jobs",
+      kind: "status",
+      payload: { jobs: [{ id: 3, prompt: "already ran", status: "done" }], running: 1 },
+      updatedAt: 1,
+    });
+  });
+  const asUser = await asAllowedUser(t);
+  await asUser.mutation(api.jobs.enqueue, {
+    kind: "run",
+    payload: { prompt: "queued remotely", projectId: 9 },
+  });
+
+  const res = await asUser.query(api.jobs.list, {});
+  // every row must expose `prompt` — the Run page calls .replace() on it
+  expect(res.jobs.map((j: any) => j.prompt)).toEqual(["queued remotely", "already ran"]);
+  expect((res.jobs[0] as any).status).toBe("queued");
+  expect(res.running).toBe(1);
+});
+
 test("update records terminal state and finish time", async () => {
   const t = convexTest(schema);
   const asUser = await asAllowedUser(t);
