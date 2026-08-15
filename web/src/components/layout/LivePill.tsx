@@ -25,7 +25,11 @@ export function LivePill() {
   let label: string;
   let showCloud = false;
   let tone: 'attention' | 'working' | 'quiet' = 'quiet';
-  if (connection !== 'live') {
+  if (connection === 'stale') {
+    // cloud only: the mirror answers but the PC feeding it stopped reporting
+    dot = 'bg-dim';
+    label = 'PC offline';
+  } else if (connection !== 'live') {
     dot = 'bg-user';
     label = 'reconnecting…';
   } else if (indexing) {

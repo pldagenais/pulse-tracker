@@ -7,6 +7,7 @@ import {
 import { readLines } from '../lib/lineReader.js';
 import { classifyLine, extractPrompt, assistantMeta, tsMs } from '../lib/parse.js';
 import { runClaude } from '../lib/llm.js';
+import { summaryRow } from './report.js';
 import { ratesFor } from '../lib/pricing.js';
 
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -242,6 +243,9 @@ export function mountData(app, ctx) {
     }
     ok(res, {
       project: { id: p.id, path: p.path, name: p.name, parentProjectId: p.parent_project_id, worktreeBranch: p.worktree_branch },
+      // "latest changes" prose (generated on demand from the project page);
+      // included here so the cloud mirror carries it with the project snapshot
+      changesSummary: summaryRow(db, p.path, familyIds),
       worktreeCount: familyIds.length - 1,
       totals: {
         sessions: totalsRow.n,

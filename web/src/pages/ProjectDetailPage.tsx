@@ -1,15 +1,18 @@
 import { useState } from 'react';
 import { Link, useParams, useNavigate } from 'react-router';
-import { useQuery } from '@tanstack/react-query';
-import { ArrowLeft, ChevronLeft, ChevronRight, Cloud } from 'lucide-react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { ArrowLeft, ChevronLeft, ChevronRight, Cloud, RefreshCw, Sparkles } from 'lucide-react';
 import { projectQuery, projectCalendarQuery } from '../lib/queries';
 import { todayKey, addMonths } from '../lib/time';
 import { claudeCellColor, claudeIntensity } from '../lib/colors';
-import { fmtCost, fmtCount, fmtDay, fmtDuration } from '../lib/format';
-import { Card, EmptyState, SkeletonRows, Badge, StatCard, useChartTip } from '../components/ui';
+import { fmtCost, fmtCount, fmtDay, fmtDuration, fmtRelative } from '../lib/format';
+import { Card, EmptyState, SkeletonRows, Badge, StatCard, useChartTip, WriteError, useWriteAction } from '../components/ui';
 import { SessionListItem } from '../components/SessionListItem';
 import { OpenInButtons, QuickActions } from '../components/actions';
 import { projectColor, CLAUDE_COLOR } from '../lib/colors';
+import { renderInline } from '../lib/md';
+import { api } from '../lib/api';
+import { MODE } from '../lib/source';
 import { cn } from '../lib/cn';
 
 export default function ProjectDetailPage() {
@@ -18,7 +21,7 @@ export default function ProjectDetailPage() {
 
   if (q.isLoading) return <div className="p-5"><SkeletonRows n={8} /></div>;
   if (!q.data) return <div className="p-5"><EmptyState title="Project not found" /></div>;
-  const { project, worktreeCount, totals, daily, sessions } = q.data;
+  const { project, changesSummary, worktreeCount, totals, daily, sessions } = q.data;
   const max = Math.max(...daily.map((d) => d.claudeMs), 1);
 
   return (
@@ -46,6 +49,8 @@ export default function ProjectDetailPage() {
         <StatCard label="est. cost" value={fmtCost(totals.estCostUsd)} sub="API-equivalent, estimated" />
       </div>
 
+      <ChangesSummaryCard projectId={project.id} summary={changesSummary} />
+
       <Card title="last 30 days · claude time" bodyClassName="p-4">
         <DailyBars daily={daily} max={max} />
       </Card>
@@ -61,6 +66,77 @@ export default function ProjectDetailPage() {
         ))}
       </Card>
     </div>
+  );
+}
+
+/**
+ * 2-3 paragraphs of prose describing the latest work in this project,
+ * generated on demand by the local summarizer and cached server-side. In
+ * cloud mode the cached text arrives with the mirrored project snapshot;
+ * generating a fresh one needs the PC.
+ */
+function ChangesSummaryCard({
+  projectId,
+  summary,
+}: {
+  projectId: number;
+  summary: { markdown: string; createdAt: number; stale: boolean } | null;
+}) {
+  const queryClient = useQueryClient();
+  const gen = useWriteAction(async () => {
+    await api.post(`/api/projects/${projectId}/changes-summary`, {});
+    queryClient.invalidateQueries({ queryKey: ['project', projectId] });
+  });
+  const local = MODE === 'local';
+
+  const action = (
+    <span className="flex items-center gap-2">
+      <WriteError error={gen.error} />
+      {summary && (
+        <span className="font-mono text-[11px] text-dim" title={summary.stale ? 'There has been activity since this was written' : undefined}>
+          {summary.stale ? 'outdated · ' : ''}written {fmtRelative(summary.createdAt)}
+        </span>
+      )}
+      <button
+        onClick={() => gen.run()}
+        disabled={gen.pending || !local}
+        title={local ? undefined : 'Generating needs your PC'}
+        className="flex items-center gap-1.5 rounded border border-line px-2 py-1 font-mono text-[11px] uppercase tracking-wider text-mid hover:text-claude disabled:opacity-40"
+      >
+        {gen.pending ? (
+          <>
+            <RefreshCw size={11} className="animate-spin" /> writing…
+          </>
+        ) : summary ? (
+          <>
+            <RefreshCw size={11} /> refresh
+          </>
+        ) : (
+          <>
+            <Sparkles size={11} /> summarize
+          </>
+        )}
+      </button>
+    </span>
+  );
+
+  return (
+    <Card title="latest changes" action={action} bodyClassName="p-4">
+      {summary ? (
+        <div className="max-w-[70ch] space-y-3 text-[13.5px] leading-6 text-ink/90">
+          {summary.markdown
+            .split(/\n{2,}/)
+            .filter((p) => p.trim())
+            .map((p, i) => (
+              <p key={i}>{renderInline(p.replace(/\n/g, ' '))}</p>
+            ))}
+        </div>
+      ) : (
+        <div className="text-xs leading-5 text-dim">
+          No summary yet — {local ? 'generate one from the last 14 days of work in this project.' : 'open Pulse on your PC to generate one.'}
+        </div>
+      )}
+    </Card>
   );
 }
 

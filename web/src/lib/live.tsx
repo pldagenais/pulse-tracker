@@ -22,19 +22,22 @@ import {
 } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { LIVE_KEYS } from './queries';
-import { MODE } from './source';
+import { MODE, STALE_MS } from './source';
 import { api } from './api';
 import type { LiveSession, IngestProgress } from './types';
 
-export type ConnectionState = 'connecting' | 'live' | 'reconnecting';
+/** 'stale' is cloud-only: the mirror answers, but the PC feeding it stopped. */
+export type ConnectionState = 'connecting' | 'live' | 'reconnecting' | 'stale';
 
 interface LiveState {
   connection: ConnectionState;
   sessions: LiveSession[];
   ingest: IngestProgress | null;
+  /** cloud + stale only: when the PC last reported, for "data as of" copy */
+  staleSince: number | null;
 }
 
-const INITIAL: LiveState = { connection: 'connecting', sessions: [], ingest: null };
+const INITIAL: LiveState = { connection: 'connecting', sessions: [], ingest: null, staleSince: null };
 
 interface LiveStore {
   get(): LiveState;
@@ -118,10 +121,22 @@ function CloudLiveProvider({ children }: { children: ReactNode }) {
       if (timer) clearTimeout(timer); // a refocus must not start a second chain
       timer = null;
       try {
-        const sessions = await api.get<LiveSession[] | null>('/api/live');
+        // The snapshot alone cannot expire: nothing deletes it when the PC
+        // sleeps, so without the heartbeat the pill kept pulsing "working"
+        // with an elapsed timer running off the viewer's clock, and phantom
+        // rows kept offering kill buttons.
+        const [sessions, hb] = await Promise.all([
+          api.get<LiveSession[] | null>('/api/live'),
+          api.get<{ lastHeartbeatAt: number | null } | null>('/api/heartbeat'),
+        ]);
         if (disposed) return;
-        setState({ connection: 'live', sessions: sessions ?? [], ingest: null });
-        if (Date.now() - lastInvalidated >= CLOUD_INVALIDATE_MS) {
+        const fresh = hb?.lastHeartbeatAt != null && Date.now() - hb.lastHeartbeatAt <= STALE_MS;
+        setState(
+          fresh
+            ? { connection: 'live', sessions: sessions ?? [], ingest: null, staleSince: null }
+            : { connection: 'stale', sessions: [], ingest: null, staleSince: hb?.lastHeartbeatAt ?? null }
+        );
+        if (fresh && Date.now() - lastInvalidated >= CLOUD_INVALIDATE_MS) {
           lastInvalidated = Date.now();
           for (const key of LIVE_KEYS) {
             queryClient.invalidateQueries({ queryKey: key, refetchType: 'active' });
@@ -216,7 +231,7 @@ function LocalLiveProvider({ children }: { children: ReactNode }) {
         try {
           const d = JSON.parse((e as MessageEvent).data);
           backfillingRef.current = d.ingest?.phase === 'backfill';
-          setState({ connection: 'live', sessions: d.live ?? [], ingest: d.ingest ?? null });
+          setState({ connection: 'live', sessions: d.live ?? [], ingest: d.ingest ?? null, staleSince: null });
         } catch { /* ignore */ }
       });
       es.addEventListener('session-activity', (e) => {

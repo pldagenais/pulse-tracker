@@ -5,6 +5,13 @@
 
 export type Mode = 'local' | 'cloud';
 
+/**
+ * How old the agent heartbeat may be before cloud mode treats the PC as
+ * offline. Shared by the offline banner, the live pill and the PWA badge so
+ * they can never disagree about whether the mirror is fresh.
+ */
+export const STALE_MS = 120_000;
+
 export function detectMode(hostname: string): Mode {
   return hostname === '127.0.0.1' || hostname === 'localhost' ? 'local' : 'cloud';
 }

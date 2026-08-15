@@ -360,6 +360,8 @@ export interface Project {
 
 export interface ProjectDetail {
   project: { id: number; path: string; name: string; parentProjectId: number | null; worktreeBranch: string | null };
+  /** "latest changes" prose; null until generated once for this project */
+  changesSummary: { markdown: string; createdAt: number; stale: boolean } | null;
   worktreeCount: number;
   totals: {
     sessions: number;
