@@ -1,0 +1,29 @@
+{
+  "name": "claude-time-tracker",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Local time tracker for Claude Code — parses ~/.claude transcripts, receives hook events, serves a React dashboard.",
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning server/index.js",
+    "dev": "concurrently -n server,web -c blue,magenta \"npm:dev:server\" \"npm:dev:web\"",
+    "dev:server": "node --disable-warning=ExperimentalWarning --watch server/index.js",
+    "dev:web": "npm --prefix web run dev",
+    "build:web": "npm --prefix web run build",
+    "setup": "node --disable-warning=ExperimentalWarning scripts/setup.mjs",
+    "reingest": "node --disable-warning=ExperimentalWarning scripts/reingest.mjs",
+    "smoke": "node --disable-warning=ExperimentalWarning scripts/smoke-parse.mjs",
+    "check": "tsc -p jsconfig.json"
+  },
+  "dependencies": {
+    "chokidar": "^4.0.0",
+    "express": "^5.0.0",
+    "pdfkit": "^0.19.1"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/node": "^24.0.0",
+    "concurrently": "^9.0.0",
+    "typescript": "~5.9.0"
+  }
+}

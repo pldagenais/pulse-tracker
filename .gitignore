@@ -1,0 +1,13 @@
+node_modules/
+data/
+web/dist/
+web/node_modules/
+*.log
+*.tsbuildinfo
+
+# secrets & deploy artifacts
+.env
+.env.*
+.convex/
+.vercel/
+.playwright-mcp/

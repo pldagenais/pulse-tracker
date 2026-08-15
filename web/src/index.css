@@ -1,0 +1,430 @@
+@import '@fontsource-variable/archivo';
+@import '@fontsource-variable/bricolage-grotesque';
+@import '@fontsource-variable/jetbrains-mono';
+@import 'tailwindcss';
+
+/* ── Observatory theme ─────────────────────────────────────────────────────
+   Phosphor instruments on deep ink. Cyan = Claude working, amber = you
+   active — the semantic duo is used identically in every view. */
+@theme {
+  --color-bg: #07090d;
+  --color-surface: #0d1117;
+  --color-surface2: #131924;
+  --color-raise: #1a2230;
+  --color-line: #1c2534;
+  --color-line2: #2a3547;
+  --color-ink: #e8edf4;
+  --color-mid: #94a1b2;
+  --color-dim: #566070;
+  --color-claude: #22d3ee;
+  --color-user: #f5b841;
+  --color-ok: #4ade80;
+  --color-danger: #f87171;
+  --font-sans: 'Archivo Variable', ui-sans-serif, system-ui, sans-serif;
+  --font-display: 'Bricolage Grotesque Variable', 'Archivo Variable', sans-serif;
+  --font-mono: 'JetBrains Mono Variable', ui-monospace, 'Cascadia Mono', monospace;
+}
+
+/* Chart + chrome variables that swap with the theme. Everything the JS layer
+   references lives here so charts repaint on toggle with zero re-renders. */
+:root {
+  color-scheme: dark;
+  /* glassmorphism: translucent panes over the aurora backdrop */
+  --glass-bg: rgba(13, 17, 23, 0.66);
+  --glass-bg-strong: rgba(15, 20, 28, 0.82);
+  --glass-border: rgba(148, 163, 184, 0.14);
+  --glass-highlight: rgba(255, 255, 255, 0.05);
+  --glass-glow: 0 8px 32px rgba(2, 6, 12, 0.45);
+  --glass-hover-glow: 0 10px 40px rgba(34, 211, 238, 0.07);
+  --aurora-1: rgba(34, 211, 238, 0.1);
+  --aurora-2: rgba(245, 184, 65, 0.05);
+  --aurora-3: rgba(139, 92, 246, 0.06);
+  /* rgb triplets for alpha ramps built in JS: rgba(var(--claude-rgb), a) */
+  --claude-rgb: 34, 211, 238;
+  --user-rgb: 245, 184, 65;
+  --legacy-rgb: 148, 163, 184;
+  /* categorical series — validated for dark surfaces (dataviz reference set) */
+  --series-0: #3987e5;
+  --series-1: #d95926;
+  --series-2: #199e70;
+  --series-3: #c98500;
+  --series-4: #d55181;
+  --series-5: #008300;
+  --series-6: #9085e9;
+  --series-7: #e66767;
+  --series-none: #566070;
+  --chart-subagent: #b9aef5;
+  --chart-bar-muted: #2a89a6;
+  --scrollbar-thumb: #222c3d;
+  --scrollbar-thumb-hover: #2e3a4f;
+  --atmo-1: rgba(34, 211, 238, 0.05);
+  --atmo-2: rgba(245, 184, 65, 0.025);
+  --scanline-opacity: 0.35;
+}
+
+/* ── Daylight theme ────────────────────────────────────────────────────────
+   Gallery-white instruments: cool paper surfaces, hairline structure, the
+   same cyan/amber semantic duo stepped darker so it pops on white. */
+[data-theme='light'] {
+  color-scheme: light;
+  --glass-bg: rgba(255, 255, 255, 0.6);
+  --glass-bg-strong: rgba(255, 255, 255, 0.82);
+  --glass-border: rgba(100, 116, 139, 0.18);
+  --glass-highlight: rgba(255, 255, 255, 0.7);
+  --glass-glow: 0 8px 32px rgba(15, 23, 42, 0.08);
+  --glass-hover-glow: 0 10px 40px rgba(8, 145, 178, 0.1);
+  --aurora-1: rgba(8, 145, 178, 0.12);
+  --aurora-2: rgba(217, 119, 6, 0.07);
+  --aurora-3: rgba(124, 58, 237, 0.07);
+  --color-bg: #eef1f7;
+  --color-surface: #ffffff;
+  --color-surface2: #e7ebf4;
+  --color-raise: #dde3ef;
+  --color-line: #d8deeb;
+  --color-line2: #c0cadd;
+  --color-ink: #0b1220;
+  --color-mid: #44516b;
+  --color-dim: #7a86a0;
+  --color-claude: #0e7490;
+  --color-user: #b45309;
+  --color-ok: #15803d;
+  --color-danger: #dc2626;
+  --claude-rgb: 8, 145, 178;
+  --user-rgb: 217, 119, 6;
+  --legacy-rgb: 100, 116, 139;
+  /* categorical series — light-surface steps of the same eight hues */
+  --series-0: #2a78d6;
+  --series-1: #eb6834;
+  --series-2: #1baf7a;
+  --series-3: #eda100;
+  --series-4: #e87ba4;
+  --series-5: #008300;
+  --series-6: #4a3aa7;
+  --series-7: #e34948;
+  --series-none: #8b96ac;
+  --chart-subagent: #6d5fd6;
+  --chart-bar-muted: #5b9fbd;
+  --scrollbar-thumb: #c4cddf;
+  --scrollbar-thumb-hover: #a9b6cf;
+  --atmo-1: rgba(8, 145, 178, 0.07);
+  --atmo-2: rgba(217, 119, 6, 0.05);
+  --scanline-opacity: 0;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+/* slightly larger global type: every rem-based (Tailwind) size scales with this */
+html {
+  font-size: 106.25%; /* 16px → 17px root */
+}
+
+body {
+  background-color: var(--color-bg);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-size: 15px;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+/* Atmosphere: drifting aurora blobs the glass panes float over */
+body::before {
+  content: '';
+  position: fixed;
+  inset: -6%;
+  pointer-events: none;
+  z-index: 0;
+  will-change: transform;
+  background:
+    radial-gradient(42% 34% at 22% 18%, var(--aurora-1), transparent 70%),
+    radial-gradient(38% 30% at 82% 78%, var(--aurora-2), transparent 70%),
+    radial-gradient(30% 26% at 68% 12%, var(--aurora-3), transparent 70%),
+    radial-gradient(120% 60% at 50% -10%, var(--atmo-1), transparent 60%);
+  animation: aurora-drift 48s ease-in-out infinite alternate;
+}
+@keyframes aurora-drift {
+  0% { transform: translate3d(-2%, -1%, 0) scale(1); }
+  50% { transform: translate3d(2%, 2%, 0) scale(1.06); }
+  100% { transform: translate3d(-1%, 3%, 0) scale(1.02); }
+}
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 60;
+  /* plain low-alpha lines, no blend mode: multiply forced the whole page into
+     an offscreen composite every frame on top of the animating aurora */
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent 0 2px,
+    rgba(0, 0, 0, 0.04) 2px 3px
+  );
+  opacity: var(--scanline-opacity);
+}
+
+#root {
+  position: relative;
+  z-index: 1;
+}
+
+/* numerals never jitter */
+* {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Motion system ──────────────────────────────────────────────────────────
+   One easing curve everywhere (fast start, long soft landing), 120–250ms.
+   Interactive elements transition their surface; presses compress slightly. */
+:root {
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+button,
+a,
+input,
+select,
+[role='switch'] {
+  transition:
+    color 140ms var(--ease),
+    background-color 140ms var(--ease),
+    border-color 140ms var(--ease),
+    box-shadow 140ms var(--ease),
+    opacity 140ms var(--ease),
+    transform 140ms var(--ease);
+}
+:where(button, a):not(:disabled):active {
+  transform: scale(0.98);
+}
+
+/* theme toggle: icon pops in with a quarter turn */
+@keyframes theme-pop {
+  from { transform: rotate(-90deg) scale(0.5); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+.theme-flip svg {
+  animation: theme-pop 0.35s var(--ease);
+}
+
+/* brief global crossfade while the theme switches (class added by theme.ts) */
+html.theme-anim,
+html.theme-anim *,
+html.theme-anim *::before,
+html.theme-anim *::after {
+  transition:
+    background-color 220ms var(--ease),
+    color 220ms var(--ease),
+    border-color 220ms var(--ease),
+    fill 220ms var(--ease),
+    stroke 220ms var(--ease) !important;
+}
+
+/* indeterminate fetch bar under the header (mounted by AppLayout) */
+.loading-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  overflow: hidden;
+  pointer-events: none;
+  animation: fade-in 0.2s ease 0.15s both; /* invisible for fast fetches */
+}
+.loading-bar::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  width: 38%;
+  background: linear-gradient(90deg, transparent, var(--color-claude), transparent);
+  animation: loading-slide 1.1s var(--ease) infinite;
+}
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes loading-slide {
+  from { transform: translateX(-110%); }
+  to { transform: translateX(380%); }
+}
+
+/* living numbers: stat values pop softly when live data changes them */
+@keyframes stat-pop {
+  from { opacity: 0.3; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+.stat-pop {
+  animation: stat-pop 0.45s var(--ease);
+}
+
+/* chart tooltips ease in instead of teleporting */
+@keyframes tip-in {
+  from { opacity: 0; transform: translateY(3px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.tip-in {
+  animation: tip-in 130ms var(--ease) both;
+}
+
+/* softer elevation on light surfaces — dark keeps its deep shadows */
+[data-theme='light'] :is(.shadow-2xl, .shadow-xl) {
+  --tw-shadow-color: rgb(15 23 42 / 0.16);
+}
+
+::selection {
+  background: rgba(var(--claude-rgb), 0.28);
+}
+
+/* keyboard users get a real focus indicator everywhere; pointer users don't */
+:where(button, a, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--color-claude);
+  outline-offset: 1px;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 5px;
+  border: 2px solid var(--color-bg);
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+}
+
+/* micro-label: the uppercase tracked section header used everywhere */
+.microlabel {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-dim);
+}
+
+/* ── Glass panes ────────────────────────────────────────────────────────────
+   The signature surface: translucent, blurred, top-lit. Reserve backdrop-blur
+   for pane-sized elements (cards, shell, popovers) — never rows or badges. */
+/* In-flow cards: NO backdrop-filter by design — the only thing behind them is
+   the smooth aurora gradient, which blur wouldn't visibly change, and per-pane
+   blur over an animating backdrop re-renders every frame (the lag source). */
+.glass {
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  box-shadow:
+    inset 0 1px 0 var(--glass-highlight),
+    var(--glass-glow);
+  transition: box-shadow 220ms var(--ease), border-color 220ms var(--ease), transform 220ms var(--ease);
+}
+.glass-hover:hover {
+  border-color: color-mix(in srgb, var(--color-claude) 28%, var(--glass-border));
+  box-shadow:
+    inset 0 1px 0 var(--glass-highlight),
+    var(--glass-glow),
+    var(--glass-hover-glow);
+  transform: translateY(-1px);
+}
+/* Overlays (popovers/modals) float over real content — they get true frost.
+   Transient + few, so the blur cost only exists while one is open. */
+.glass-strong {
+  background: var(--glass-bg-strong);
+  backdrop-filter: blur(26px);
+  border: 1px solid var(--glass-border);
+  box-shadow:
+    inset 0 1px 0 var(--glass-highlight),
+    var(--glass-glow);
+}
+
+/* Card section titles: display face, bolder and brighter than the old
+   microlabel so every pane announces itself. */
+.card-title {
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-ink);
+}
+.card-title [aria-hidden] {
+  color: color-mix(in srgb, var(--color-claude) 55%, transparent);
+}
+
+/* live pulse */
+@keyframes pulse-dot {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(var(--claude-rgb), 0.5); }
+  55% { box-shadow: 0 0 0 6px rgba(var(--claude-rgb), 0); }
+}
+.pulse-dot {
+  animation: pulse-dot 2s ease-out infinite;
+}
+
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+/* page entrance: direct children cascade in. fill-mode backwards (not both)
+   so no transform is retained after the animation — a kept transform would
+   break position:sticky descendants (report day headers). */
+.fade-up > * {
+  animation: fade-up 0.38s var(--ease) backwards;
+}
+.fade-up > *:nth-child(2) { animation-delay: 40ms; }
+.fade-up > *:nth-child(3) { animation-delay: 80ms; }
+.fade-up > *:nth-child(4) { animation-delay: 120ms; }
+.fade-up > *:nth-child(5) { animation-delay: 160ms; }
+.fade-up > *:nth-child(6) { animation-delay: 200ms; }
+.fade-up > *:nth-child(7) { animation-delay: 240ms; }
+.fade-up > *:nth-child(n + 8) { animation-delay: 270ms; }
+
+@keyframes shimmer {
+  0% { background-position: -400px 0; }
+  100% { background-position: 400px 0; }
+}
+.skeleton {
+  border-radius: 4px;
+  background: linear-gradient(90deg, var(--color-surface2) 25%, var(--color-raise) 50%, var(--color-surface2) 75%);
+  background-size: 800px 100%;
+  animation: shimmer 1.6s linear infinite;
+}
+
+@keyframes drawer-in {
+  from { transform: translateX(24px); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+.drawer-in {
+  animation: drawer-in 0.22s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+@keyframes flash-row {
+  0% { background: rgba(var(--claude-rgb), 0.18); }
+  100% { background: transparent; }
+}
+.flash-row {
+  animation: flash-row 1.8s ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pulse-dot, .skeleton, .fade-up > *, .drawer-in, .flash-row, .tip-in,
+  .loading-bar, .loading-bar::after, .theme-flip svg, .stat-pop {
+    animation: none;
+  }
+  button, a, input, select, [role='switch'] {
+    transition: none;
+  }
+  :where(button, a):not(:disabled):active {
+    transform: none;
+  }
+}
+
+mark {
+  background: rgba(var(--user-rgb), 0.25);
+  color: var(--color-ink);
+  border-radius: 2px;
+  padding: 0 1px;
+}

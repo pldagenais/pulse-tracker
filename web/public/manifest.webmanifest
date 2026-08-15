@@ -1,0 +1,17 @@
+{
+  "name": "Pulse — Claude Code Time Tracker",
+  "short_name": "Pulse",
+  "description": "Local time tracking for Claude Code: sessions, prompts, timelines, and cost insights.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#07090d",
+  "theme_color": "#07090d",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
