@@ -21,6 +21,10 @@ export default function DashboardPage() {
   const journal = useInfiniteQuery(journalInfiniteQuery());
   const settings = useQuery(settingsQuery());
   const d = ov.data;
+  // cloud: the query SUCCEEDED but the snapshot is null — this day was never
+  // mirrored. Without this the difference from "loading" is invisible and the
+  // cards skeleton forever.
+  const notMirrored = ov.isSuccess && !d;
   const yesterday = d?.trend[12];
   const [explainCost, setExplainCost] = useState(false);
 
@@ -29,7 +33,14 @@ export default function DashboardPage() {
       {explainCost && <CostExplainModal date={date} onClose={() => setExplainCost(false)} />}
       {/* hero stats */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
-        {ov.isLoading || !d ? (
+        {notMirrored ? (
+          <div className="col-span-2 lg:col-span-5">
+            <EmptyState
+              title="No data mirrored for today yet"
+              hint="Your PC mirrors each day as it happens — this appears when today has not synced yet."
+            />
+          </div>
+        ) : ov.isLoading || !d ? (
           Array.from({ length: 5 }, (_, i) => <Skeleton key={i} className="h-[86px]" />)
         ) : (
           <>
@@ -69,7 +80,19 @@ export default function DashboardPage() {
               }
             />
             <button onClick={() => setExplainCost(true)} className="h-full w-full text-left" title="Why? Click for the cost breakdown">
-              <StatCard label="est. cost" value={fmtCost(d.estCostUsd)} sub="API-equivalent · click to explain" />
+              <StatCard
+                label="est. cost"
+                value={fmtCost(d.estCostUsd)}
+                sub={
+                  d.trend[13]?.unpriced ? (
+                    <span className="text-danger" title="A model without a price-table entry ran today — this figure is a floor, not a total.">
+                      partial — unpriced model in use
+                    </span>
+                  ) : (
+                    'API-equivalent · click to explain'
+                  )
+                }
+              />
             </button>
             <StatCard
               label="streak"
@@ -97,10 +120,18 @@ export default function DashboardPage() {
 
         <div className="space-y-4 xl:col-span-5">
           <Card title="last 7 days · claude time" bodyClassName="p-4">
-            {d ? <WeekTrend week={d.trend.slice(-7)} /> : <Skeleton className="h-28" />}
+            {d ? (
+              <WeekTrend week={d.trend.slice(-7)} />
+            ) : notMirrored ? (
+              <EmptyState title="Not mirrored yet" />
+            ) : (
+              <Skeleton className="h-28" />
+            )}
           </Card>
           <Card title="today by project" bodyClassName="p-4">
-            {!d ? (
+            {notMirrored ? (
+              <EmptyState title="Not mirrored yet" />
+            ) : !d ? (
               <Skeleton className="h-24" />
             ) : d.byProject.length === 0 ? (
               <EmptyState title="Nothing tracked yet today" hint="Start a Claude Code session anywhere — it shows up here within seconds." />
@@ -171,8 +202,9 @@ function BudgetCard({ budget, date }: { budget: number; date: string }) {
   );
 }
 
-function BudgetBody({ budget, date, rows }: { budget: number; date: string; rows: { estCostUsd: number }[] }) {
+function BudgetBody({ budget, date, rows }: { budget: number; date: string; rows: { estCostUsd: number; unpriced?: boolean }[] }) {
   const spent = rows.reduce((s, r) => s + r.estCostUsd, 0);
+  const partial = rows.some((r) => r.unpriced);
   const [y, m, dom] = date.split('-').map(Number);
   const daysInMonth = new Date(y, m, 0).getDate();
   const pace = dom > 0 ? (spent / dom) * daysInMonth : spent;
@@ -182,8 +214,13 @@ function BudgetBody({ budget, date, rows }: { budget: number; date: string; rows
       <ProgressBar value={spent} max={budget} />
       <div className="mt-2 flex items-baseline justify-between gap-2 text-xs">
         <span className="text-mid">
-          spent <span className="font-mono text-ink">{fmtCost(spent)}</span> of{' '}
-          <span className="font-mono">{fmtCost(budget)}</span>
+          spent <span className="font-mono text-ink">{fmtCost(spent)}</span>
+          {partial && (
+            <span className="text-danger" title="A model without a price-table entry ran this month — spend is a floor, not a total.">
+              *
+            </span>
+          )}{' '}
+          of <span className="font-mono">{fmtCost(budget)}</span>
         </span>
         <span className={cn('font-mono text-[12px]', over ? 'text-danger' : 'text-ok')}>
           on pace for {fmtCost(pace)}

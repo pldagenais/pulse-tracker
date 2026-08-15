@@ -10,6 +10,8 @@ export interface DayStat {
   turns: number;
   sessions: number;
   estCostUsd: number;
+  /** a session without a price-table entry touched this day: cost is a floor */
+  unpriced: boolean;
   outputTokens: number;
   subagentMs: number;
 }

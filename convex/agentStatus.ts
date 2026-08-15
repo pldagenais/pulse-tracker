@@ -44,6 +44,6 @@ export const heartbeat = query({
       .query("agent")
       .withIndex("by_key", (q) => q.eq("key", "status"))
       .unique();
-    return { lastHeartbeatAt: agent?.lastHeartbeatAt ?? null };
+    return { lastHeartbeatAt: agent?.lastHeartbeatAt ?? null, tz: agent?.tz ?? null };
   },
 });

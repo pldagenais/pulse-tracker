@@ -135,6 +135,7 @@ export const heartbeat = mutation({
     liveCount: v.number(),
     dbSessions: v.number(),
     syncedThrough: v.number(),
+    tz: v.optional(v.string()),
   },
   handler: async (ctx, { agentKey, ...rest }) => {
     requireAgent(agentKey);

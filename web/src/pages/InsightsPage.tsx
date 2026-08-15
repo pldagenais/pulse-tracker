@@ -130,7 +130,13 @@ export default function InsightsPage() {
                         <td className="py-1.5 text-mid">{fmtModel(m.model)}</td>
                         <td className="text-right text-ink">{fmtTokens(m.outputTokens)}</td>
                         <td className="text-right text-dim">{fmtTokens(m.cacheWriteTokens)}</td>
-                        <td className="text-right text-user">{fmtCost(m.estCostUsd)}</td>
+                        <td
+                          className="text-right text-user"
+                          title={m.unpriced ? 'No price-table entry for this model — its tokens are not in this figure' : undefined}
+                        >
+                          {fmtCost(m.estCostUsd)}
+                          {m.unpriced && <span className="text-danger">*</span>}
+                        </td>
                       </tr>
                     ))}
                   </tbody>

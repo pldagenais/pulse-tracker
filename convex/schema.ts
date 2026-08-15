@@ -94,5 +94,9 @@ export default defineSchema({
     liveCount: v.number(),
     dbSessions: v.number(),
     syncedThrough: v.number(),
+    // IANA zone of the machine the agent runs on. Day keys (overview:<day>,
+    // calendar:<id>:<month>) are minted in THIS zone; a browser in another
+    // zone must format against it or it asks for days that were never mirrored.
+    tz: v.optional(v.string()),
   }).index("by_key", ["key"]),
 });

@@ -1,10 +1,42 @@
-// Local-day helpers (this app always runs on the same machine as the server,
-// so the browser timezone is the source of truth for display).
+// Local-day helpers.
+//
+// In local mode the browser and the server share a machine, so the browser
+// zone is the truth. In cloud mode every mirrored day key (overview:<day>,
+// calendar:<id>:<month>) was minted in the AGENT's zone — a phone one zone
+// ahead would otherwise ask for tomorrow-on-the-PC, a key that never exists,
+// and render skeletons forever. TzGate sets the agent zone before the cloud
+// app renders its first query, so keys are right from the start.
+//
+// Only dayKeyOf/todayKey are zone-sensitive: everything else here is pure
+// calendar math on day STRINGS, identical in every zone.
 
 const pad = (n: number) => String(n).padStart(2, '0');
 
+let dayKeyZone: string | null = null;
+let zoneFmt: Intl.DateTimeFormat | null = null;
+
+/** Cloud mode only: format day keys in the agent's IANA zone from here on. */
+export function setDayKeyZone(tz: string | null): void {
+  if (!tz || tz === dayKeyZone) return;
+  try {
+    // en-CA yields YYYY-MM-DD directly
+    zoneFmt = new Intl.DateTimeFormat('en-CA', {
+      timeZone: tz,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    });
+    dayKeyZone = tz;
+  } catch {
+    // unknown zone string: keep the browser-zone fallback
+    zoneFmt = null;
+    dayKeyZone = null;
+  }
+}
+
 export function dayKeyOf(ts: number | Date): string {
   const d = ts instanceof Date ? ts : new Date(ts);
+  if (zoneFmt) return zoneFmt.format(d);
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 

@@ -5,6 +5,7 @@ import { dailyStatsQuery, projectStatsQuery, sessionsQuery, journalInfiniteQuery
 import type { DayStat, ProjectSplitRow } from '../lib/types';
 import { todayKey, addDays, weekOf, dayKeyOf } from '../lib/time';
 import { fmtCost, fmtCount, fmtDay, fmtDuration, fmtRelative, plural } from '../lib/format';
+import { MODE } from '../lib/source';
 import { Card, StatCard, EmptyState, Skeleton, SkeletonRows } from '../components/ui';
 import { SessionListItem } from '../components/SessionListItem';
 import { projectColor, CLAUDE_COLOR } from '../lib/colors';
@@ -86,7 +87,13 @@ export default function DigestPage() {
             <StatCard label="claude working" value={fmtDuration(sum((r) => r.claudeMs))} accent="claude" />
             <StatCard label="you active" value={fmtDuration(sum((r) => r.userActiveMs))} accent="user" />
             <StatCard label="prompts" value={fmtCount(sum((r) => r.prompts))} />
-            <StatCard label="sessions" value={fmtCount(sum((r) => r.sessions))} />
+            {/* distinct count for the range — summing per-day counts double
+                counts any session active on more than one day. Cloud's list
+                caps total at the page size, so it falls back to the sum. */}
+            <StatCard
+              label="sessions"
+              value={fmtCount(MODE === 'local' ? top.data?.total ?? sum((r) => r.sessions) : sum((r) => r.sessions))}
+            />
             <StatCard label="est. cost" value={fmtCost(sum((r) => r.estCostUsd))} />
           </>
         )}

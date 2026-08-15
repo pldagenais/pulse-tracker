@@ -23,6 +23,7 @@ import {
 import { useQueryClient } from '@tanstack/react-query';
 import { LIVE_KEYS } from './queries';
 import { MODE, STALE_MS } from './source';
+import { setDayKeyZone } from './time';
 import { api } from './api';
 import type { LiveSession, IngestProgress } from './types';
 
@@ -127,9 +128,10 @@ function CloudLiveProvider({ children }: { children: ReactNode }) {
         // rows kept offering kill buttons.
         const [sessions, hb] = await Promise.all([
           api.get<LiveSession[] | null>('/api/live'),
-          api.get<{ lastHeartbeatAt: number | null } | null>('/api/heartbeat'),
+          api.get<{ lastHeartbeatAt: number | null; tz?: string | null } | null>('/api/heartbeat'),
         ]);
         if (disposed) return;
+        setDayKeyZone(hb?.tz ?? null); // no-op unless the agent's zone changed
         const fresh = hb?.lastHeartbeatAt != null && Date.now() - hb.lastHeartbeatAt <= STALE_MS;
         setState(
           fresh

@@ -8,7 +8,12 @@ import { estimateCost } from './pricing.js';
 /** All turns + between-turn review gaps (user-active intervals), per session. */
 export function activityData(db) {
   const turns = db
-    .prepare('SELECT session_id, started_at, ended_at, claude_ms, est_cost_usd, output_tokens, input_tokens FROM turns ORDER BY session_id, started_at')
+    .prepare(
+      `SELECT t.session_id, t.started_at, t.ended_at, t.claude_ms, t.est_cost_usd,
+              t.output_tokens, t.input_tokens, s.has_unpriced_tokens unpriced
+         FROM turns t JOIN sessions s ON s.id = t.session_id
+        ORDER BY t.session_id, t.started_at`
+    )
     .all();
   const { idleMs } = timingSettings(db);
   const gaps = [];
@@ -29,17 +34,30 @@ export function activityData(db) {
  */
 const MAX_DAYS = 3660;
 
-function pushDayClipped(bucketFor, iv, key) {
-  // an interval spans at most a couple of local days (gaps are idle-capped)
+/**
+ * Cut an interval at local midnights. Returns one piece per local day the
+ * interval touches, with that day's start for range checks.
+ * @param {{start: number, end: number}} iv
+ * @returns {{day: string, dayStartMs: number, start: number, end: number}[]}
+ */
+function splitByLocalDay(iv) {
+  const out = [];
   let day = localDayKey(iv.start);
   const lastDay = localDayKey(iv.end);
-  if (day > lastDay) return; // inverted interval: nothing to attribute
+  if (day > lastDay) return out; // inverted interval: nothing to attribute
   for (let i = 0; i < MAX_DAYS; i++) {
     const [a, b] = dayBounds(day);
     const clipped = clipInterval(iv, a, b);
-    if (clipped) bucketFor(day)[key].push(clipped);
+    if (clipped) out.push({ day, dayStartMs: a, ...clipped });
     if (day >= lastDay) break;
     day = addDays(day, 1);
+  }
+  return out;
+}
+
+function pushDayClipped(bucketFor, iv, key) {
+  for (const piece of splitByLocalDay(iv)) {
+    bucketFor(piece.day)[key].push({ start: piece.start, end: piece.end });
   }
 }
 
@@ -62,25 +80,35 @@ export function rangeDaily(db, fromDay, toDay) {
   const bucketFor = (day) => {
     let d = days.get(day);
     if (!d) {
-      d = { claudeMs: 0, turns: 0, estCostUsd: 0, outputTokens: 0, sessions: new Set(), user: [], work: [], subagentMs: 0 };
+      d = { claudeMs: 0, turns: 0, estCostUsd: 0, outputTokens: 0, unpriced: false, sessions: new Set(), user: [], work: [], subagentMs: 0 };
       days.set(day, d);
     }
     return d;
   };
 
   for (const t of turns) {
-    if (t.started_at < fromMs || t.started_at >= toMs) {
-      // still contribute the wall interval if it overlaps the range
-      if (t.ended_at > fromMs && t.started_at < toMs) pushDayClipped(bucketFor, { start: t.started_at, end: t.ended_at }, 'work');
-      continue;
+    const wallEnd = Math.max(t.ended_at, t.started_at);
+    if (wallEnd <= fromMs || t.started_at >= toMs) continue; // no overlap at all
+    pushDayClipped(bucketFor, { start: t.started_at, end: wallEnd }, 'work');
+
+    // Pro-rate metrics across the local days the turn touches, by wall-time
+    // share. A turn used to dump its entire claude_ms/cost/tokens onto its
+    // START day while the gantt drew the continued block on the next day —
+    // so the day view could show work under a StatCard reading zero.
+    const dur = wallEnd - t.started_at;
+    for (const piece of splitByLocalDay({ start: t.started_at, end: wallEnd })) {
+      if (piece.dayStartMs < fromMs || piece.dayStartMs >= toMs) continue; // day outside the asked range
+      const share = dur > 0 ? (piece.end - piece.start) / dur : 1;
+      const d = bucketFor(piece.day);
+      d.claudeMs += t.claude_ms * share;
+      d.estCostUsd += (t.est_cost_usd || 0) * share;
+      d.outputTokens += (t.output_tokens || 0) * share;
+      d.sessions.add(t.session_id); // active on every day it touches
+      // a session with unpriced tokens makes every day it touched "partial"
+      if (t.unpriced) d.unpriced = true;
     }
-    const d = bucketFor(localDayKey(t.started_at));
-    d.claudeMs += t.claude_ms;
-    d.turns += 1;
-    d.estCostUsd += t.est_cost_usd || 0;
-    d.outputTokens += t.output_tokens || 0;
-    d.sessions.add(t.session_id);
-    pushDayClipped(bucketFor, { start: t.started_at, end: t.ended_at }, 'work');
+    // a count cannot be fractional: the turn is counted on its start day
+    if (t.started_at >= fromMs) bucketFor(localDayKey(t.started_at)).turns += 1;
   }
   for (const g of gaps) {
     if (g.end <= fromMs || g.start >= toMs) continue;
@@ -117,7 +145,10 @@ export function rangeDaily(db, fromDay, toDay) {
       turns: d ? d.turns : 0,
       sessions: d ? d.sessions.size : 0,
       estCostUsd: d ? round2(d.estCostUsd) : 0,
-      outputTokens: d ? d.outputTokens : 0,
+      // true = a session without a price-table entry touched this day, so the
+      // day's cost is a floor, not a total
+      unpriced: d ? d.unpriced : false,
+      outputTokens: d ? Math.round(d.outputTokens) : 0,
       subagentMs: agentByDay.get(day) ?? 0,
     });
     if (day >= toDay) break;
@@ -220,9 +251,27 @@ export function hourHistogram(db, fromMs, toMs) {
     .all(fromMs, toMs);
   for (const r of promptRows) buckets[r.h].prompts = r.c;
   const turnRows = db
-    .prepare('SELECT started_at, claude_ms FROM turns WHERE started_at>=? AND started_at<?')
+    .prepare('SELECT started_at, ended_at, claude_ms FROM turns WHERE started_at>=? AND started_at<?')
     .all(fromMs, toMs);
-  for (const t of turnRows) buckets[new Date(t.started_at).getHours()].claudeMs += t.claude_ms;
+  // pro-rate across clock hours by wall-time share — reading getHours() once
+  // let a single bucket hold more than 60 minutes of a long turn
+  for (const t of turnRows) {
+    const end = Math.max(t.ended_at, t.started_at);
+    const dur = end - t.started_at;
+    if (dur === 0) {
+      buckets[new Date(t.started_at).getHours()].claudeMs += t.claude_ms;
+      continue;
+    }
+    let cur = t.started_at;
+    for (let i = 0; cur < end && i < 100_000; i++) {
+      const d = new Date(cur);
+      const hourEnd = new Date(d.getFullYear(), d.getMonth(), d.getDate(), d.getHours() + 1).getTime();
+      const pieceEnd = Math.min(hourEnd, end);
+      buckets[d.getHours()].claudeMs += t.claude_ms * ((pieceEnd - cur) / dur);
+      cur = pieceEnd;
+    }
+  }
+  for (const b of buckets) b.claudeMs = Math.round(b.claudeMs);
   return buckets;
 }
 

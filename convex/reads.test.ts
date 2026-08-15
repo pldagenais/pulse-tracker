@@ -75,7 +75,7 @@ test("agentStatus.get returns null when the status snapshot is absent", async ()
   expect(await asUser.query(api.agentStatus.get, {})).toBeNull();
   // ...but the heartbeat must still be readable, or the offline banner goes
   // blind exactly when the PC is offline
-  expect(await asUser.query(api.agentStatus.heartbeat, {})).toEqual({ lastHeartbeatAt: 5 });
+  expect(await asUser.query(api.agentStatus.heartbeat, {})).toEqual({ lastHeartbeatAt: 5, tz: null });
 });
 
 test("sessions.list returns payloads newest first", async () => {

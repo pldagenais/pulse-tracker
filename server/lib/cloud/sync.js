@@ -188,6 +188,9 @@ export function createCloudSync(db, { port, appVersion, jobs }) {
     await client.mutation(api.sync.heartbeat, {
       agentKey: CLOUD_KEY,
       version: appVersion,
+      // the zone all mirrored day keys were minted in — remote browsers
+      // format their day keys against this, not their own zone
+      tz: Intl.DateTimeFormat().resolvedOptions().timeZone,
       ingestPhase: 'watching',
       liveCount: live.length,
       dbSessions: /** @type {any} */ (db.prepare('SELECT count(*) c FROM sessions').get()).c,

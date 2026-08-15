@@ -63,9 +63,18 @@ export default function ComparePage() {
 }
 
 function CompareGrid({ A, B }: { A: SessionDetail; B: SessionDetail }) {
-  const rows: { label: string; fmt: (d: SessionDetail) => string; num: (d: SessionDetail) => number; lowerBetter?: boolean }[] = [
+  // A session with unpriced tokens reads artificially cheap — painting it
+  // green as the "winner" would present missing data as a victory.
+  const costComparable = !A.session.hasUnpricedTokens && !B.session.hasUnpricedTokens;
+  const rows: { label: string; fmt: (d: SessionDetail) => string; num: (d: SessionDetail) => number; lowerBetter?: boolean; noWinner?: boolean }[] = [
     { label: 'claude working', fmt: (d) => fmtDuration(d.session.claudeMs), num: (d) => d.session.claudeMs, lowerBetter: true },
-    { label: 'est. cost', fmt: (d) => fmtCost(d.session.estCostUsd ?? 0), num: (d) => d.session.estCostUsd ?? 0, lowerBetter: true },
+    {
+      label: 'est. cost',
+      fmt: (d) => `${fmtCost(d.session.estCostUsd ?? 0)}${d.session.hasUnpricedTokens ? '*' : ''}`,
+      num: (d) => d.session.estCostUsd ?? 0,
+      lowerBetter: true,
+      noWinner: !costComparable,
+    },
     { label: 'prompts', fmt: (d) => fmtCount(d.session.promptCount), num: (d) => d.session.promptCount },
     { label: 'turns', fmt: (d) => fmtCount(d.session.turnCount), num: (d) => d.session.turnCount },
     { label: 'tool calls', fmt: (d) => fmtCount(d.session.toolUseCount), num: (d) => d.session.toolUseCount },
@@ -95,7 +104,7 @@ function CompareGrid({ A, B }: { A: SessionDetail; B: SessionDetail }) {
       {rows.map((r) => {
         const va = r.num(A);
         const vb = r.num(B);
-        const winner = va === vb ? null : (r.lowerBetter ? va < vb : va > vb) ? 'a' : 'b';
+        const winner = r.noWinner || va === vb ? null : (r.lowerBetter ? va < vb : va > vb) ? 'a' : 'b';
         return (
           <div key={r.label} className="grid grid-cols-[minmax(0,1fr)_130px_minmax(0,1fr)] items-center gap-x-3 border-b border-line/60 px-4 py-2 last:border-0">
             <span className={cn('text-right font-mono text-[14px]', winner === 'a' ? 'text-ok' : 'text-ink')}>{r.fmt(A)}</span>

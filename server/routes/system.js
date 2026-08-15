@@ -162,7 +162,7 @@ export function mountSystem(app, ctx) {
   // agent heartbeat rather than the status snapshot; served here too so the
   // path means the same thing in both modes.
   app.get('/api/heartbeat', (req, res) => {
-    ok(res, { lastHeartbeatAt: Date.now() });
+    ok(res, { lastHeartbeatAt: Date.now(), tz: Intl.DateTimeFormat().resolvedOptions().timeZone });
   });
 
   app.get('/api/status', (req, res) => {

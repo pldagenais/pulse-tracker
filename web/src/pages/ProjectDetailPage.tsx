@@ -252,6 +252,12 @@ function MonthCalendar({ projectId }: { projectId: number }) {
       }
       bodyClassName="p-4"
     >
+      {/* cloud mirrors only the current month; say so instead of a silently empty grid */}
+      {q.isSuccess && !q.data && (
+        <div className="mb-2 font-mono text-[11px] text-dim">
+          This month is not mirrored — remotely, only the current month syncs.
+        </div>
+      )}
       <div className="grid grid-cols-7 gap-1.5">
         {['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'].map((d) => (
           <div key={d} className="pb-1 text-center font-mono text-[10px] uppercase tracking-wider text-dim">{d}</div>

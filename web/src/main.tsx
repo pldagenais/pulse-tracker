@@ -1,4 +1,4 @@
-import { StrictMode } from 'react';
+import { StrictMode, useEffect, useState, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RouterProvider } from 'react-router';
@@ -7,6 +7,8 @@ import { Authenticated, Unauthenticated } from 'convex/react';
 import { LiveProvider } from './lib/live';
 import { MODE } from './lib/source';
 import { convex } from './lib/convexClient';
+import { api } from './lib/api';
+import { setDayKeyZone } from './lib/time';
 import { SignIn } from './components/layout/SignIn';
 import { initTheme } from './lib/theme';
 import { router } from './routes';
@@ -44,6 +46,31 @@ const queryClient = new QueryClient({
   },
 });
 
+/**
+ * Cloud only: learn the agent's timezone BEFORE the first query renders.
+ * Day keys are minted in the agent's zone; a browser a zone ahead would ask
+ * for `overview:<tomorrow-on-the-PC>` — a key that never exists — and every
+ * day-keyed card would skeleton forever. todayKey() is called during render,
+ * so the zone cannot be retrofitted after queries have fired.
+ */
+function TzGate({ children }: { children: ReactNode }) {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    api
+      .get<{ tz: string | null }>('/api/heartbeat')
+      .then((hb) => setDayKeyZone(hb?.tz ?? null))
+      // no heartbeat yet → browser-zone fallback beats a blank page
+      .catch(() => {})
+      .finally(() => alive && setReady(true));
+    return () => {
+      alive = false;
+    };
+  }, []);
+  if (!ready) return null; // one network round-trip; the aurora backdrop shows
+  return <>{children}</>;
+}
+
 const app = (
   <QueryClientProvider client={queryClient}>
     <LiveProvider>
@@ -60,7 +87,9 @@ const tree =
       <Unauthenticated>
         <SignIn />
       </Unauthenticated>
-      <Authenticated>{app}</Authenticated>
+      <Authenticated>
+        <TzGate>{app}</TzGate>
+      </Authenticated>
     </ConvexAuthProvider>
   ) : (
     app
