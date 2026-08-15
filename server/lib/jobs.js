@@ -4,7 +4,7 @@
 // in the DB so the UI can poll it; full output lives in the transcript itself.
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
-import { spawn } from 'node:child_process';
+import { spawn, execFile } from 'node:child_process';
 import { log } from './logger.js';
 
 const MAX_CONCURRENT = 3;
@@ -13,6 +13,34 @@ const JOB_TIMEOUT_MS = 30 * 60_000; // hard ceiling — headless runs must end
 
 /** Values accepted from the UI; anything else runs with CC's defaults. */
 const PERMISSION_MODES = new Set(['default', 'plan', 'acceptEdits', 'bypassPermissions']);
+
+/**
+ * Kill a spawned job and everything under it.
+ *
+ * Jobs are spawned with `shell: true`, so the direct child is `cmd.exe` and the
+ * real `claude` runs as its grandchild. `child.kill()` only reaps the shell —
+ * the model keeps running, burning quota and ignoring both the timeout and the
+ * user's Interrupt. `taskkill /t` walks the tree; `/f` is required because
+ * `claude` will not exit on a polite signal mid-generation.
+ *
+ * @param {import('node:child_process').ChildProcess} child
+ * @param {number} jobId  for logging only
+ */
+function killTree(child, jobId) {
+  const pid = child.pid;
+  if (!pid) return;
+  if (process.platform !== 'win32') {
+    try { process.kill(-pid, 'SIGKILL'); } catch { try { child.kill('SIGKILL'); } catch { /* gone */ } }
+    return;
+  }
+  execFile('taskkill', ['/pid', String(pid), '/t', '/f'], (err) => {
+    if (!err) return;
+    // code 128 = process already gone, which is the outcome we wanted anyway
+    if (/not found|128/i.test(String(err.message))) return;
+    log.warn(`job ${jobId}: taskkill failed (${err.message}) — falling back to child.kill()`);
+    try { child.kill(); } catch { /* already gone */ }
+  });
+}
 
 /**
  * @param {import('node:sqlite').DatabaseSync} db
@@ -91,7 +119,7 @@ export function createJobRunner(db, { onEvent = () => {} } = {}) {
 
     const timer = setTimeout(() => {
       log.warn(`job ${jobId}: timed out after ${JOB_TIMEOUT_MS / 60000}m — killing`);
-      try { child.kill(); } catch { /* ignore */ }
+      killTree(child, jobId);
     }, JOB_TIMEOUT_MS);
 
     const settle = (status, code) => {
@@ -118,7 +146,7 @@ export function createJobRunner(db, { onEvent = () => {} } = {}) {
     const child = children.get(jobId);
     if (!child) return false;
     killedJobs.add(jobId);
-    try { child.kill(); } catch { /* ignore */ }
+    killTree(child, jobId);
     return true;
   }
 
