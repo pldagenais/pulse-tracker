@@ -173,6 +173,7 @@ export function SegmentedControl<T extends string>({
       {options.map((o) => (
         <button
           key={o.value}
+          type="button"
           onClick={() => onChange(o.value)}
           aria-pressed={o.value === value}
           className={cn(
@@ -331,7 +332,7 @@ export function ErrorState({ message, onRetry }: { message: string; onRetry?: ()
     <div className="flex flex-col items-center gap-2 py-10 text-center">
       <div className="font-mono text-xs text-danger">{message}</div>
       {onRetry && (
-        <button onClick={onRetry} className="rounded border border-line2 px-3 py-1 font-mono text-[12px] uppercase tracking-wider text-mid hover:text-ink">
+        <button type="button" onClick={onRetry} className="rounded border border-line2 px-3 py-1 font-mono text-[12px] uppercase tracking-wider text-mid hover:text-ink">
           {t('misc.retry')}
         </button>
       )}
