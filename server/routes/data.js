@@ -18,9 +18,18 @@ function dayParam(v, fallback = todayKey()) {
   return typeof v === 'string' && DAY_RE.test(v) ? v : fallback;
 }
 
+/** Upper bound on any day walk in this file, so none can run away. */
+const MAX_RANGE_DAYS = 400;
+
+/**
+ * Parse from/to. Returns `null` when the range is inverted so the caller can
+ * reject it: the day walks downstream are synchronous, and an inverted range
+ * used to run forever, blocking the whole server rather than crashing it.
+ */
 function rangeParams(q, defaultDays = 30) {
   const to = dayParam(q.to);
   const from = dayParam(q.from, addDays(to, -(defaultDays - 1)));
+  if (from > to) return null;
   const [fromMs] = dayBounds(from);
   const [, toMs] = dayBounds(to);
   return { from, to, fromMs, toMs };
@@ -97,7 +106,9 @@ export function mountData(app, ctx) {
 
   app.get('/api/stats', (req, res) => {
     const groupBy = String(req.query.groupBy ?? 'day');
-    const { from, to, fromMs, toMs } = rangeParams(req.query);
+    const range = rangeParams(req.query);
+    if (!range) return bad(res, 'from must be on or before to');
+    const { from, to, fromMs, toMs } = range;
     switch (groupBy) {
       case 'day':
         return ok(res, { groupBy, from, to, rows: rangeDaily(db, from, to) });
@@ -119,6 +130,7 @@ export function mountData(app, ctx) {
   app.get('/api/heatmap', (req, res) => {
     const to = dayParam(req.query.to);
     const from = dayParam(req.query.from, addDays(to, -370));
+    if (from > to) return bad(res, 'from must be on or before to');
     ok(res, { from, to, days: heatmapDays(db, from, to), firstActivityDay: firstActivityDay(db) });
   });
 
@@ -224,10 +236,9 @@ export function mountData(app, ctx) {
       .all(...familyIds, fromMs, toMs);
     const byDay = new Map(turnRows.map((r) => [r.d, r]));
     const daily = [];
-    for (let day = from; ; day = addDays(day, 1)) {
+    for (let day = from, i = 0; day <= to && i < MAX_RANGE_DAYS; day = addDays(day, 1), i++) {
       const r = byDay.get(day);
       daily.push({ date: day, claudeMs: r?.c ?? 0, turns: r?.n ?? 0 });
-      if (day === to) break;
     }
     ok(res, {
       project: { id: p.id, path: p.path, name: p.name, parentProjectId: p.parent_project_id, worktreeBranch: p.worktree_branch },

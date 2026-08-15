@@ -176,14 +176,17 @@ const inflight = new Map();
 export function mountReport(app, ctx) {
   const { db } = ctx;
 
+  /** Returns null on an inverted range so callers reject rather than walk it. */
   const parseRange = (req) => {
     const to = DAY_RE.test(String(req.query.to)) ? String(req.query.to) : todayKey();
     const from = DAY_RE.test(String(req.query.from)) ? String(req.query.from) : firstActivityDay(db);
-    return { from, to };
+    return from > to ? null : { from, to };
   };
 
   app.get('/api/report/:projectId', (req, res) => {
-    const { from, to } = parseRange(req);
+    const range = parseRange(req);
+    if (!range) return bad(res, 'from must be on or before to');
+    const { from, to } = range;
     const data = buildReport(db, Number(req.params.projectId), from, to);
     if (!data) return bad(res, 'project not found', 404);
     const { inputHash, ...rest } = data;
@@ -230,7 +233,9 @@ export function mountReport(app, ctx) {
   });
 
   app.get('/api/report/:projectId/pdf', (req, res) => {
-    const { from, to } = parseRange(req);
+    const range = parseRange(req);
+    if (!range) return bad(res, 'from must be on or before to');
+    const { from, to } = range;
     const data = buildReport(db, Number(req.params.projectId), from, to);
     if (!data) return bad(res, 'project not found', 404);
     renderPdf(res, data);

@@ -281,6 +281,7 @@ export function mountSystem(app, ctx) {
     const format = String(req.query.format ?? 'csv');
     const to = DAY_RE.test(String(req.query.to)) ? String(req.query.to) : todayKey();
     const from = DAY_RE.test(String(req.query.from)) ? String(req.query.from) : firstActivityDay(db);
+    if (from > to) return res.status(400).json({ ok: false, error: 'from must be on or before to' });
 
     let rows;
     let columns;

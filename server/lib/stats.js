@@ -22,15 +22,23 @@ export function activityData(db) {
   return { turns, gaps };
 }
 
+/**
+ * Upper bound on any day walk. Ten years is far beyond any real range, and a
+ * bounded loop cannot wedge the single-threaded server: these walks are
+ * synchronous, so an unbounded one blocks HTTP, SSE, ingest and every timer.
+ */
+const MAX_DAYS = 3660;
+
 function pushDayClipped(bucketFor, iv, key) {
   // an interval spans at most a couple of local days (gaps are idle-capped)
   let day = localDayKey(iv.start);
   const lastDay = localDayKey(iv.end);
-  for (;;) {
+  if (day > lastDay) return; // inverted interval: nothing to attribute
+  for (let i = 0; i < MAX_DAYS; i++) {
     const [a, b] = dayBounds(day);
     const clipped = clipInterval(iv, a, b);
     if (clipped) bucketFor(day)[key].push(clipped);
-    if (day === lastDay) break;
+    if (day >= lastDay) break;
     day = addDays(day, 1);
   }
 }
@@ -41,6 +49,10 @@ function pushDayClipped(bucketFor, iv, key) {
  * sessions, estCostUsd, outputTokens, subagentMs} with zero-filled days.
  */
 export function rangeDaily(db, fromDay, toDay) {
+  // An inverted range has no days in it. Returning early also stops the
+  // zero-fill walk below from never reaching its terminator. `YYYY-MM-DD`
+  // sorts lexicographically, so a string compare is the correct test.
+  if (fromDay > toDay) return [];
   const [fromMs] = dayBounds(fromDay);
   const [, toMs] = dayBounds(toDay);
   const { turns, gaps } = activityData(db);
@@ -92,7 +104,7 @@ export function rangeDaily(db, fromDay, toDay) {
   const agentByDay = new Map(agentRows.map((r) => [r.d, r.ms]));
 
   const out = [];
-  for (let day = fromDay; ; day = addDays(day, 1)) {
+  for (let day = fromDay, i = 0; i < MAX_DAYS; day = addDays(day, 1), i++) {
     const d = days.get(day);
     const userIv = d ? mergeIntervals(d.user) : [];
     const wallIv = d ? mergeIntervals([...d.work, ...d.user]) : [];
@@ -108,7 +120,7 @@ export function rangeDaily(db, fromDay, toDay) {
       outputTokens: d ? d.outputTokens : 0,
       subagentMs: agentByDay.get(day) ?? 0,
     });
-    if (day === toDay) break;
+    if (day >= toDay) break;
   }
   return out;
 }
