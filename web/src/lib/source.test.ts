@@ -73,6 +73,7 @@ describe('resolveRemote', () => {
   it('returns null for capabilities that need the local machine', () => {
     expect(resolveRemote('/api/manage/mcp')).toBeNull();
     expect(resolveRemote('/api/memory')).toBeNull();
+    expect(resolveRemote('/api/memory/file?path=x')).toBeNull();
     expect(resolveRemote('/api/routines')).toBeNull();
     expect(resolveRemote('/api/projects/9/open')).toBeNull();
   });
