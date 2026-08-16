@@ -7,6 +7,7 @@ Local Windows app that tracks Claude Code usage. Node 24 server (plain ESM JS) +
 - Real-time signals via Claude Code hooks (`~/.claude/settings.json` → `hooks/notify.mjs` → POST /api/hook).
 - SQLite via built-in `node:sqlite` (run node with `--disable-warning=ExperimentalWarning`), DB at `data/tracker.db` — a rebuildable cache EXCEPT journal/settings/hook_events/meta (preserved by `npm run reingest`).
 - Never writes anything under `~/.claude/projects` (read-only source data) — SOLE exception: the memory editor (`server/routes/memory.js`) may write `*.md` inside `<project>/memory/` folders (never `.jsonl`), with rotating backups in `data/memory-backups/`.
+- That same editor also writes project-committed memory (`CLAUDE.md`, `CLAUDE.local.md`, `.claude/CLAUDE.md`) **inside the user's own repos**, discovered by walking up from each tracked project cwd (`server/lib/memory-files.js`). A path is writable iff that discovery pass produced it — membership in the returned index, never a pattern match on request input — and `violatesProjectsInvariant()` re-enforces the `~/.claude/projects` rule independently.
 
 ## Commands
 - `npm start` — run server (serves built web/dist)

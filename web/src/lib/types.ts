@@ -271,8 +271,41 @@ export interface RoutinesData {
   environments: { id: string; name: string }[];
 }
 
+/** Where a memory file comes from — global, committed in the repo, or auto-memory. */
+export type MemoryScope = 'global' | 'project' | 'local' | 'projectDir' | 'auto';
+
+export interface MemoryFileEntry {
+  path: string;
+  name: string;
+  scope: MemoryScope;
+  /** posix path relative to the group root; '' for global/auto */
+  rel: string;
+  /** ancestor distance from the project cwd (0 = its own dir); null for global/auto */
+  depth: number | null;
+  exists: boolean;
+  sizeBytes: number;
+  mtime: number;
+}
+
+export interface MemoryWorktreeEntry {
+  key: string;
+  label: string;
+  branch: string | null;
+  files: MemoryFileEntry[];
+}
+
+export interface MemoryGroupEntry {
+  key: string;
+  label: string;
+  rootPath: string | null;
+  lastSeen: number | null;
+  files: MemoryFileEntry[];
+  worktrees: MemoryWorktreeEntry[];
+}
+
 export interface MemoryTree {
-  groups: { label: string; files: { path: string; name: string; sizeBytes: number; mtime: number }[] }[];
+  groups: MemoryGroupEntry[];
+  count: number;
 }
 
 export interface McpServersData {
