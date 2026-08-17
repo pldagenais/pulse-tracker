@@ -5,6 +5,8 @@ import { runClaude } from '../lib/llm.js';
 import { dayBounds, addDays, todayKey, localDayKey, safeJsonParse, sha1 } from '../lib/util.js';
 import { firstActivityDay } from '../lib/stats.js';
 import { log } from '../lib/logger.js';
+import { buildDayReview, renderReviewInput, DAY_REVIEW_INSTRUCTIONS } from '../lib/review.js';
+import { getSetting } from '../lib/db.js';
 
 const ok = (res, data) => res.json({ ok: true, data });
 const bad = (res, msg, code = 400) => res.status(code).json({ ok: false, error: msg });
@@ -220,6 +222,58 @@ export function mountReport(app, ctx) {
     if (!data) return bad(res, 'project not found', 404);
     const { inputHash, ...rest } = data;
     ok(res, rest);
+  });
+
+  app.get('/api/review/:projectId', async (req, res) => {
+    const range = parseRange(req);
+    if (!range) return bad(res, 'from must be on or before to');
+    const data = await buildDayReview(db, Number(req.params.projectId), range.from, range.to);
+    if (!data) return bad(res, 'project not found', 404);
+    const { inputHash, ...rest } = data;
+    ok(res, rest);
+  });
+
+  app.post('/api/review/:projectId/generate', async (req, res) => {
+    const projectId = Number(req.params.projectId);
+    const range = parseRange(req);
+    if (!range) return bad(res, 'from must be on or before to');
+    const lang = req.body?.lang === 'fr' ? 'fr' : 'en';
+    try {
+      const review = await buildDayReview(db, projectId, range.from, range.to);
+      if (!review) return bad(res, 'project not found', 404);
+      // Refuse before spending quota, like changes-summary does.
+      if (!review.days.length) return bad(res, 'no activity in this range');
+
+      const key = `review|${review.project.path}|${range.from}|${range.to}|${lang}`;
+      let job = inflight.get(key);
+      if (!job) {
+        const input = renderReviewInput(review);
+        const model = getSetting(db, 'llm_model', 'claude-opus-5');
+        const configDir = getSetting(db, 'llm_config_dir', '') || '';
+        log.info(`day-review: project ${projectId} ${range.from}..${range.to} (${input.length} chars, ${model})`);
+        const langLine = lang === 'fr' ? 'Écris la réponse entièrement en français.\n' : '';
+        job = runClaude(DAY_REVIEW_INSTRUCTIONS + langLine + input, {
+          model, maxTurns: 1, timeoutMs: 600_000, configDir,
+        }).then((markdown) => {
+          db.prepare(
+            `INSERT INTO project_reviews(project_path, period_from, period_to, input_hash, model, markdown, created_at)
+             VALUES(?,?,?,?,?,?,?)
+             ON CONFLICT(project_path, period_from, period_to) DO UPDATE SET
+               input_hash=excluded.input_hash, model=excluded.model,
+               markdown=excluded.markdown, created_at=excluded.created_at`
+          ).run(review.project.path, range.from, range.to, review.inputHash, model, markdown, Date.now());
+          return markdown;
+        });
+        inflight.set(key, job);
+        job.finally(() => inflight.delete(key)).catch(() => {});
+      }
+      const markdown = await job;
+      ok(res, { markdown, createdAt: Date.now(), stale: false });
+    } catch (e) {
+      // The previously cached review is left in place on failure.
+      log.warn('day-review failed:', e instanceof Error ? e.message : String(e));
+      bad(res, `review failed: ${e instanceof Error ? e.message : e}`, 500);
+    }
   });
 
   /* "Latest changes" prose for the project page: 2-3 paragraphs over the last
