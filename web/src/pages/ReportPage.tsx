@@ -185,26 +185,28 @@ export default function ReportPage() {
             />
           </span>
         )}
-        <div className="ml-auto flex items-center gap-2">
-          <button
-            onClick={() => summarize.mutate()}
-            disabled={summarize.isPending || !d || d.days.length === 0}
-            className="flex items-center gap-1.5 rounded-md border border-claude/50 bg-claude/10 px-3 py-2 font-mono text-[12px] uppercase tracking-wider text-claude hover:bg-claude/20 disabled:opacity-40"
-          >
-            {summarize.isPending ? <RefreshCw size={12} className="animate-spin" /> : <Sparkles size={12} />}
-            {summarize.isPending ? t('report.summarizing') : d?.summary && !d.summary.stale ? t('report.refreshSummary') : d?.summary?.stale ? t('report.updateSummary') : t('report.aiSummaryBtn')}
-          </button>
-          {/* the PDF is rendered by the local server, so the link only exists there */}
-          {MODE === 'local' && (
-            <a
-              href={pdfHref}
-              className="flex items-center gap-1.5 rounded-md border border-line px-3 py-2 font-mono text-[12px] uppercase tracking-wider text-mid hover:bg-surface2 hover:text-ink"
-              title={t('report.exportPdf')}
+        {mode === 'summary' && (
+          <div className="ml-auto flex items-center gap-2">
+            <button
+              onClick={() => summarize.mutate()}
+              disabled={summarize.isPending || !d || d.days.length === 0}
+              className="flex items-center gap-1.5 rounded-md border border-claude/50 bg-claude/10 px-3 py-2 font-mono text-[12px] uppercase tracking-wider text-claude hover:bg-claude/20 disabled:opacity-40"
             >
-              <FileDown size={12} /> pdf
-            </a>
-          )}
-        </div>
+              {summarize.isPending ? <RefreshCw size={12} className="animate-spin" /> : <Sparkles size={12} />}
+              {summarize.isPending ? t('report.summarizing') : d?.summary && !d.summary.stale ? t('report.refreshSummary') : d?.summary?.stale ? t('report.updateSummary') : t('report.aiSummaryBtn')}
+            </button>
+            {/* the PDF is rendered by the local server, so the link only exists there */}
+            {MODE === 'local' && (
+              <a
+                href={pdfHref}
+                className="flex items-center gap-1.5 rounded-md border border-line px-3 py-2 font-mono text-[12px] uppercase tracking-wider text-mid hover:bg-surface2 hover:text-ink"
+                title={t('report.exportPdf')}
+              >
+                <FileDown size={12} /> pdf
+              </a>
+            )}
+          </div>
+        )}
       </div>
       {summarize.isPending && (
         <div className="rounded-md border border-claude/30 bg-claude/5 px-3 py-2 font-mono text-[12px] text-claude">
@@ -217,7 +219,7 @@ export default function ReportPage() {
         </div>
       )}
 
-      {report.isLoading && <SkeletonRows n={8} />}
+      {mode === 'summary' && report.isLoading && <SkeletonRows n={8} />}
 
       {d && (
         <>
