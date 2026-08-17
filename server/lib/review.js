@@ -14,8 +14,9 @@ export const CAPS = { filesPerCommit: 20, commitsPerDay: 40, promptsPerDay: 60, 
  * @param {number} projectId
  * @param {string} from local YYYY-MM-DD
  * @param {string} to   local YYYY-MM-DD
+ * @param {string} [lang] 'en' | 'fr' — which cached review to read back
  */
-export async function buildDayReview(db, projectId, from, to) {
+export async function buildDayReview(db, projectId, from, to, lang = 'en') {
   const p = /** @type {any} */ (db.prepare('SELECT id, name, path FROM projects WHERE id=?').get(projectId));
   if (!p) return null;
   const fam = /** @type {any[]} */ (db.prepare('SELECT id, path FROM projects WHERE id=? OR parent_project_id=?').all(projectId, projectId));
@@ -96,8 +97,8 @@ export async function buildDayReview(db, projectId, from, to) {
   const inputHash = reviewInputHash(days);
 
   const cached = /** @type {any} */ (db.prepare(
-    'SELECT markdown, input_hash, created_at FROM project_reviews WHERE project_path=? AND period_from=? AND period_to=?'
-  ).get(p.path, from, to));
+    'SELECT markdown, input_hash, created_at FROM project_reviews WHERE project_path=? AND period_from=? AND period_to=? AND lang=?'
+  ).get(p.path, from, to, lang));
 
   return {
     project: { id: p.id, name: p.name, path: p.path },

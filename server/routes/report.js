@@ -227,7 +227,8 @@ export function mountReport(app, ctx) {
   app.get('/api/review/:projectId', async (req, res) => {
     const range = parseRange(req);
     if (!range) return bad(res, 'from must be on or before to');
-    const data = await buildDayReview(db, Number(req.params.projectId), range.from, range.to);
+    const lang = req.query?.lang === 'fr' ? 'fr' : 'en';
+    const data = await buildDayReview(db, Number(req.params.projectId), range.from, range.to, lang);
     if (!data) return bad(res, 'project not found', 404);
     const { inputHash, ...rest } = data;
     ok(res, rest);
@@ -239,7 +240,7 @@ export function mountReport(app, ctx) {
     if (!range) return bad(res, 'from must be on or before to');
     const lang = req.body?.lang === 'fr' ? 'fr' : 'en';
     try {
-      const review = await buildDayReview(db, projectId, range.from, range.to);
+      const review = await buildDayReview(db, projectId, range.from, range.to, lang);
       if (!review) return bad(res, 'project not found', 404);
       // Refuse before spending quota, like changes-summary does.
       if (!review.days.length) return bad(res, 'no activity in this range');
@@ -256,12 +257,12 @@ export function mountReport(app, ctx) {
           model, maxTurns: 1, timeoutMs: 600_000, configDir,
         }).then((markdown) => {
           db.prepare(
-            `INSERT INTO project_reviews(project_path, period_from, period_to, input_hash, model, markdown, created_at)
-             VALUES(?,?,?,?,?,?,?)
-             ON CONFLICT(project_path, period_from, period_to) DO UPDATE SET
+            `INSERT INTO project_reviews(project_path, period_from, period_to, lang, input_hash, model, markdown, created_at)
+             VALUES(?,?,?,?,?,?,?,?)
+             ON CONFLICT(project_path, period_from, period_to, lang) DO UPDATE SET
                input_hash=excluded.input_hash, model=excluded.model,
                markdown=excluded.markdown, created_at=excluded.created_at`
-          ).run(review.project.path, range.from, range.to, review.inputHash, model, markdown, Date.now());
+          ).run(review.project.path, range.from, range.to, lang, review.inputHash, model, markdown, Date.now());
           return markdown;
         });
         inflight.set(key, job);

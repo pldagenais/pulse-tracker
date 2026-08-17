@@ -97,3 +97,32 @@ test('reviewInputHash changes when commitsOmitted increments, all else equal', (
   const b = reviewInputHash([day({ commitsOmitted: 6 })]);
   assert.notEqual(a, b);
 });
+
+test('project_reviews caches EN and FR reviews for the same project+range independently', async () => {
+  // Regression guard for the v14 primary key omitting `lang`: generating an
+  // FR review for a range that already has a cached EN review must not
+  // silently overwrite it (they used to collide on the same conflict
+  // target). Insert both languages directly, then confirm both the raw
+  // table and buildDayReview's lang-filtered SELECT see two independent rows.
+  const db = tmpDb();
+  db.prepare("INSERT INTO projects(path, name) VALUES('C:\\\\notarepo','Nope')").run();
+  const project = /** @type {any} */ (db.prepare('SELECT id, path FROM projects LIMIT 1').get());
+  const id = Number(project.id);
+  const projectPath = project.path;
+  const ins = db.prepare(
+    `INSERT INTO project_reviews(project_path, period_from, period_to, lang, input_hash, model, markdown, created_at)
+     VALUES(?,?,?,?,?,?,?,?)`
+  );
+  ins.run(projectPath, '2026-08-01', '2026-08-16', 'en', 'h', 'm', 'EN markdown', 1);
+  ins.run(projectPath, '2026-08-01', '2026-08-16', 'fr', 'h', 'm', 'FR markdown', 2);
+
+  const rows = db.prepare('SELECT lang, markdown FROM project_reviews WHERE project_path=?').all(projectPath);
+  assert.equal(rows.length, 2);
+  assert.equal(rows.find((r) => r.lang === 'en').markdown, 'EN markdown');
+  assert.equal(rows.find((r) => r.lang === 'fr').markdown, 'FR markdown');
+
+  const en = await buildDayReview(db, id, '2026-08-01', '2026-08-16', 'en');
+  const fr = await buildDayReview(db, id, '2026-08-01', '2026-08-16', 'fr');
+  assert.equal(en.cached.markdown, 'EN markdown');
+  assert.equal(fr.cached.markdown, 'FR markdown');
+});

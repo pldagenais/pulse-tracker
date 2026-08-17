@@ -458,4 +458,32 @@ CREATE TABLE project_reviews(
 );
 `,
   },
+  {
+    // v14's PRIMARY KEY had no `lang`, so generating an EN review and then
+    // an FR review for the same project+range hit the same conflict target
+    // and silently overwrote each other — only one language could ever be
+    // cached per range. SQLite cannot ALTER a PRIMARY KEY in place, so the
+    // table is rebuilt: create it fresh with `lang` folded into the key,
+    // copy existing rows across as 'en' (the only language ever cached
+    // before this migration existed), drop the old table, rename the new
+    // one into place.
+    version: 15,
+    sql: `
+CREATE TABLE project_reviews_new(
+  project_path TEXT NOT NULL,
+  period_from  TEXT NOT NULL,
+  period_to    TEXT NOT NULL,
+  lang         TEXT NOT NULL DEFAULT 'en',
+  input_hash   TEXT NOT NULL,
+  model        TEXT,
+  markdown     TEXT NOT NULL,
+  created_at   INTEGER NOT NULL,
+  PRIMARY KEY(project_path, period_from, period_to, lang)
+);
+INSERT INTO project_reviews_new(project_path, period_from, period_to, lang, input_hash, model, markdown, created_at)
+  SELECT project_path, period_from, period_to, 'en', input_hash, model, markdown, created_at FROM project_reviews;
+DROP TABLE project_reviews;
+ALTER TABLE project_reviews_new RENAME TO project_reviews;
+`,
+  },
 ];
