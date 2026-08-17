@@ -1,13 +1,16 @@
 // Rebuild the derived cache from transcripts. PRESERVES user data:
-// journal, settings, hook_events, meta(schema_version) survive; everything
-// else is derived from ~/.claude and safe to drop.
+// journal, settings, hook_events, accounts, session_accounts and
+// meta(schema_version) survive; everything else is derived from ~/.claude and
+// safe to drop. Account attribution in particular CANNOT be re-derived —
+// transcripts carry no account identity, so dropping it would permanently lose
+// which subscription each session ran on.
 // Stop the server first (or let its watcher re-sync afterwards).
 import { openDb, setMeta } from '../server/lib/db.js';
 import { createIngester } from '../server/lib/ingest.js';
 import { importLegacy } from '../server/lib/legacy.js';
 
 const db = openDb();
-console.log('dropping derived tables (journal/settings/hook_events preserved)...');
+console.log('dropping derived tables (journal/settings/hook_events/accounts preserved)...');
 db.exec('BEGIN');
 try {
   for (const t of ['events', 'prompts', 'turns', 'sessions', 'projects', 'agent_runs', 'legacy_daily', 'ingest_files', 'parse_failures', 'commits', 'error_events']) {

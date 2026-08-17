@@ -51,6 +51,9 @@ function sessionRow(r) {
     note: r.meta_note ?? null,
     gitBranch: r.git_branch,
     ccVersion: r.cc_version,
+    // which subscription ran this — null when we could not tell
+    accountUuid: r.account_uuid ?? null,
+    accountSource: r.account_source ?? null,
     startedAt: r.started_at,
     endedAt: r.ended_at,
     lastEventAt: r.last_event_at,
@@ -76,10 +79,12 @@ const SESSION_SELECT = `
   SELECT s.*, p.name project_name, p.parent_project_id, p.worktree_branch,
          (st.session_id IS NOT NULL) starred,
          sm.tags meta_tags, sm.note meta_note,
+         sa.account_uuid, sa.source account_source,
          (SELECT substr(p2.text,1,100) FROM prompts p2 WHERE p2.session_id=s.id ORDER BY p2.ts LIMIT 1) first_prompt
     FROM sessions s JOIN projects p ON p.id = s.project_id
     LEFT JOIN starred st ON st.session_id = s.id
-    LEFT JOIN session_meta sm ON sm.session_id = s.id`;
+    LEFT JOIN session_meta sm ON sm.session_id = s.id
+    LEFT JOIN session_accounts sa ON sa.session_id = s.id`;
 
 export function mountData(app, ctx) {
   const { db, live } = ctx;
@@ -272,6 +277,11 @@ export function mountData(app, ctx) {
     const where = [];
     const args = [];
     if (req.query.project) { where.push('s.project_id=?'); args.push(Number(req.query.project)); }
+    if (req.query.account) {
+      // 'none' = the sessions we could not attribute, so they stay findable
+      if (String(req.query.account) === 'none') where.push('sa.account_uuid IS NULL');
+      else { where.push('sa.account_uuid=?'); args.push(String(req.query.account)); }
+    }
     if (req.query.from && DAY_RE.test(String(req.query.from))) {
       where.push('s.started_at>=?'); args.push(dayBounds(String(req.query.from))[0]);
     }
@@ -280,7 +290,10 @@ export function mountData(app, ctx) {
     }
     const sort = { recent: 's.started_at DESC', duration: 's.claude_ms DESC', cost: 's.est_cost_usd DESC' }[String(req.query.sort ?? 'recent')] ?? 's.started_at DESC';
     const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
-    const total = db.prepare(`SELECT count(*) c FROM sessions s ${whereSql}`).get(...args).c;
+    // same join chain as SESSION_SELECT so an account filter counts correctly
+    const total = db.prepare(
+      `SELECT count(*) c FROM sessions s LEFT JOIN session_accounts sa ON sa.session_id = s.id ${whereSql}`
+    ).get(...args).c;
     const rows = db
       .prepare(`${SESSION_SELECT} ${whereSql} ORDER BY ${sort} LIMIT ? OFFSET ?`)
       .all(...args, pageSize, page * pageSize)

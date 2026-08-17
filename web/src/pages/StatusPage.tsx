@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, Download, RefreshCw } from 'lucide-react';
-import { statusQuery, settingsQuery, parseFailuresQuery, webhooksQuery } from '../lib/queries';
+import { statusQuery, settingsQuery, parseFailuresQuery, webhooksQuery, accountsQuery } from '../lib/queries';
 import { api, qs } from '../lib/api';
 import { useLiveSelector } from '../lib/live';
 import { fmtBytes, fmtCount, fmtDuration, fmtRelative, plural } from '../lib/format';
@@ -84,6 +84,7 @@ export default function StatusPage() {
         </div>
       )}
       <ParseFailuresCard />
+      <AccountsCard />
       <SettingsCard />
       <WebhooksCard />
       <NotificationsCard />
@@ -412,6 +413,77 @@ function Field({
         className="w-24 rounded border border-line bg-surface2 px-2 py-1.5 font-mono text-xs text-ink outline-none placeholder:text-dim focus:border-claude/50"
       />
     </div>
+  );
+}
+
+/**
+ * Two subscriptions on one machine. Desktop sessions identify themselves via
+ * their profile dir, but a terminal CLI shares one credential store — only the
+ * user knows which account it is signed into, so that one is asserted here.
+ */
+function AccountsCard() {
+  const { t, tf } = useT();
+  const queryClient = useQueryClient();
+  const q = useQuery(accountsQuery());
+  const d = q.data;
+
+  const saveLabel = useWriteAction(async (uuid: string, label: string) => {
+    await api.put(`/api/accounts/${uuid}`, { label });
+    await queryClient.invalidateQueries();
+  });
+  const saveCli = useWriteAction(async (uuid: string) => {
+    await api.put('/api/accounts/cli/current', { accountUuid: uuid || null });
+    await queryClient.invalidateQueries();
+  });
+
+  // One subscription = nothing to disambiguate; don't add a card that asks a
+  // question the user doesn't have.
+  if (!d || d.accounts.length < 2) return null;
+
+  return (
+    <Card title={t('status.acctTitle')} bodyClassName="space-y-3 p-4">
+      {d.accounts.map((a) => (
+        <div key={a.uuid} className="flex items-start gap-4">
+          <div className="w-56 shrink-0">
+            <div className="truncate text-xs text-ink" title={a.email ?? a.uuid}>{a.name}</div>
+            <div className="mt-0.5 font-mono text-[11px] leading-4 text-dim">
+              {tf('status.acctSessions', { n: fmtCount(a.sessions) })}
+              {a.isDefault && ` · ${t('status.acctDefault')}`}
+              {a.planUsage?.sevendayPct != null && ` · ${tf('status.acctQuota', { fh: a.planUsage.fivehourPct ?? 0, sd: a.planUsage.sevendayPct })}`}
+            </div>
+          </div>
+          <input
+            defaultValue={a.label ?? ''}
+            placeholder={t('status.acctLabelPlaceholder')}
+            maxLength={60}
+            disabled={!LOCAL}
+            onBlur={(e) => { if (e.target.value !== (a.label ?? '')) saveLabel.run(a.uuid, e.target.value); }}
+            className="w-48 rounded border border-line bg-surface2 px-2 py-1.5 text-xs text-ink outline-none placeholder:text-dim focus:border-claude/50 disabled:opacity-50"
+          />
+        </div>
+      ))}
+
+      <div className="flex items-start gap-4 border-t border-line pt-3">
+        <div className="w-56 shrink-0">
+          <div className="text-xs text-ink">{t('status.acctCliLabel')}</div>
+          <div className="mt-0.5 text-[12px] leading-4 text-dim">{t('status.acctCliHint')}</div>
+        </div>
+        <select
+          value={d.cliAccountUuid ?? ''}
+          disabled={!LOCAL}
+          onChange={(e) => saveCli.run(e.target.value)}
+          className="rounded border border-line bg-surface2 px-2 py-1.5 text-xs text-mid outline-none disabled:opacity-50"
+        >
+          <option value="">{t('status.acctCliNone')}</option>
+          {d.accounts.map((a) => <option key={a.uuid} value={a.uuid}>{a.name}</option>)}
+        </select>
+      </div>
+
+      {d.unattributedSessions > 0 && (
+        <p className="font-mono text-[11px] text-dim">{tf('status.acctUnattributed', { n: fmtCount(d.unattributedSessions) })}</p>
+      )}
+      <WriteError error={saveLabel.error ?? saveCli.error} />
+    </Card>
   );
 }
 

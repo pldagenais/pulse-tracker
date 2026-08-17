@@ -16,6 +16,7 @@ import { createScheduler } from './lib/scheduler.js';
 import { createAlertEngine } from './lib/alerts.js';
 import { createRoutinesBridge } from './lib/routines.js';
 import { importLegacy } from './lib/legacy.js';
+import { syncAccounts, backfillAccounts } from './lib/accounts.js';
 import { startWatcher } from './lib/watcher.js';
 import { createApp } from './http.js';
 import { classifyPath } from './lib/scan.js';
@@ -73,6 +74,10 @@ async function startBackground() {
   try {
     await ingester.scanAndIngest({ phase: 'backfill' });
     await importLegacy(db, ingester.projectIdFor);
+    // Needs sessions on disk already: the one-time backfill attributes every
+    // session older than the second account to the first one.
+    syncAccounts(db);
+    backfillAccounts(db);
   } catch (e) {
     log.error('backfill failed:', e);
   }
@@ -120,6 +125,7 @@ async function startBackground() {
     try {
       db.prepare('DELETE FROM hook_events WHERE ts < ?').run(Date.now() - HOOK_EVENTS_RETENTION_MS);
       runDailyBackup();
+      syncAccounts(db); // picks up a newly created profile without a restart
       gitScanner.scanAll();
       prTracker.tick();
       // stale sweep: sessions idle for >24h with no live signal are considered ended

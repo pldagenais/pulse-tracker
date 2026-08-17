@@ -156,6 +156,10 @@ export interface SessionSummary {
   note: string | null;
   gitBranch: string | null;
   ccVersion: string | null;
+  /** Which subscription ran this session; null when we could not tell. */
+  accountUuid: string | null;
+  /** How we know — 'env-profile'/'env-explicit'/'manual' are exact, the rest inferred. */
+  accountSource: string | null;
   startedAt: number | null;
   endedAt: number | null;
   lastEventAt: number | null;
@@ -622,6 +626,33 @@ export interface UsageWindowSlice {
   prompts: number;
 }
 
+/**
+ * Real rate-limit consumption as the desktop app records it, per subscription.
+ * Only sampled while that account's app is running, hence `stale`.
+ */
+export interface AccountPlanUsage {
+  accountUuid: string;
+  name: string;
+  email: string | null;
+  isDefault: boolean;
+  /** Trailing-5h quota used, 0-100. Null when never sampled. */
+  fivehourPct: number | null;
+  /** Trailing-7d quota used, 0-100. */
+  sevendayPct: number | null;
+  sampledAt: number | null;
+  stale: boolean;
+}
+
+/** One subscription's slice of the rolling windows. */
+export interface AccountUsageWindow {
+  accountUuid: string;
+  name: string;
+  isDefault: boolean;
+  window5h: UsageWindowSlice;
+  window7d: UsageWindowSlice;
+  planUsage: AccountPlanUsage | null;
+}
+
 export interface UsageWindowData {
   window5h: UsageWindowSlice;
   window7d: UsageWindowSlice;
@@ -630,4 +661,30 @@ export interface UsageWindowData {
   burnTokPerMin: number;
   ceiling5hUsd: number | null;
   ceiling7dUsd: number | null;
+  /** Each subscription has its own rolling quota — a combined figure overstates both. */
+  byAccount: AccountUsageWindow[];
+  /** Turns we could not attribute, so the split is honest about not adding up. */
+  unattributedTurns7d: number;
+}
+
+export interface AccountSummary {
+  uuid: string;
+  email: string | null;
+  orgUuid: string | null;
+  label: string | null;
+  profileDir: string | null;
+  rateLimitTier: string | null;
+  isDefault: boolean;
+  name: string;
+  firstSeenAt: number | null;
+  lastSeenAt: number | null;
+  sessions: number;
+  planUsage: AccountPlanUsage | null;
+}
+
+export interface AccountsData {
+  accounts: AccountSummary[];
+  /** Which account the terminal CLI is signed into — asserted by the user, not detected. */
+  cliAccountUuid: string | null;
+  unattributedSessions: number;
 }

@@ -409,4 +409,33 @@ CREATE TABLE project_summaries(
 );
 `,
   },
+  {
+    // Multiple Claude subscriptions on one machine. Transcripts carry no
+    // account identity, so attribution comes from the hook env (see
+    // lib/accounts.js) and is USER DATA — it cannot be re-derived from
+    // ~/.claude, so both tables stay out of reingest's drop list.
+    // session_accounts is first-write-wins: a later login flip must never
+    // retroactively relabel a session that already resolved.
+    version: 13,
+    sql: `
+CREATE TABLE accounts(
+  uuid TEXT PRIMARY KEY,
+  email TEXT,
+  org_uuid TEXT,
+  label TEXT,
+  profile_dir TEXT,
+  rate_limit_tier TEXT,
+  is_default INTEGER NOT NULL DEFAULT 0,
+  first_seen_at INTEGER,
+  last_seen_at INTEGER
+);
+CREATE TABLE session_accounts(
+  session_id TEXT PRIMARY KEY,
+  account_uuid TEXT NOT NULL,
+  source TEXT NOT NULL,
+  ts INTEGER NOT NULL
+);
+CREATE INDEX idx_session_accounts_account ON session_accounts(account_uuid);
+`,
+  },
 ];

@@ -39,6 +39,20 @@ export const misc = {
   'status.reparsing': { en: 'reparsing…', fr: 'réanalyse…' },
   'status.reparse': { en: 're-parse', fr: 'réanalyser' },
   'status.latest': { en: 'latest:', fr: 'plus récent :' },
+  // two subscriptions on one machine
+  'status.acctTitle': { en: 'Claude accounts', fr: 'comptes Claude' },
+  'status.acctSessions': { en: '{n} sessions', fr: '{n} sessions' },
+  'status.acctDefault': { en: 'default app', fr: 'app par défaut' },
+  'status.acctQuota': { en: '5h {fh}% · 7d {sd}%', fr: '5 h {fh} % · 7 j {sd} %' },
+  'status.acctLabelPlaceholder': { en: 'name this account', fr: 'nommer ce compte' },
+  'status.acctCliLabel': { en: 'unmarked sessions', fr: 'sessions sans marqueur' },
+  'status.acctCliHint': {
+    en: 'Only the extra account’s launcher tags its sessions. The Start-Menu app and a terminal both arrive unmarked — pick who they are. For an exact answer instead, have the launcher set CLAUDE_TRACKER_ACCOUNT.',
+    fr: 'Seul le lanceur du compte supplémentaire marque ses sessions. L’app du menu Démarrer et un terminal arrivent sans marqueur — indiquez de qui il s’agit. Pour une réponse exacte, faites définir CLAUDE_TRACKER_ACCOUNT par le lanceur.',
+  },
+  'status.acctCliNone': { en: 'assume the default app’s account', fr: 'supposer le compte de l’app par défaut' },
+  'status.acctUnattributed': { en: '{n} sessions have no account yet', fr: '{n} sessions sans compte pour l’instant' },
+
   'status.timingTitle': { en: 'timing model & budget', fr: 'modèle de temps et budget' },
   'status.idleLabel': { en: 'idle threshold (min)', fr: 'seuil d’inactivité (min)' },
   'status.idleHint': {

@@ -4,7 +4,7 @@ import { Cloud, Bot, Square, AlertTriangle, Gauge } from 'lucide-react';
 import { useLive, useNow } from '../lib/live';
 import { usageWindowQuery } from '../lib/queries';
 import { api } from '../lib/api';
-import type { LiveSession } from '../lib/types';
+import type { AccountUsageWindow, LiveSession } from '../lib/types';
 import { fmtCost, fmtDuration, fmtElapsed, fmtModel, fmtRelative, plural } from '../lib/format';
 import { EmptyState, ProgressBar, StatCard } from '../components/ui';
 import { useT } from '../lib/i18n';
@@ -20,6 +20,9 @@ export default function MissionPage() {
   const sorted = [...sessions].sort((a, b) => prio(a) - prio(b) || b.since - a.since);
   const u = usage.data;
   const pct5h = u?.ceiling5hUsd ? Math.min((u.window5h.estCostUsd / u.ceiling5hUsd) * 100, 100) : null;
+  // Two subscriptions have two independent rolling quotas, so one combined
+  // number overstates the pressure on each. Split only when there IS a split.
+  const perAccount = (u?.byAccount ?? []).length > 1 ? u!.byAccount : null;
 
   return (
     <div className="fade-up w-full space-y-4 p-5">
@@ -28,6 +31,9 @@ export default function MissionPage() {
           size of everyone else's, under labels louder than the values */}
       {u && (
         <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+          {perAccount
+            ? perAccount.map((a) => <AccountWindowCard key={a.accountUuid} a={a} />)
+            : <>
           <StatCard
             label={t('run.win5h')}
             accent="user"
@@ -63,6 +69,7 @@ export default function MissionPage() {
               </span>
             }
           />
+            </>}
           <StatCard
             label={t('run.fleet')}
             accent="claude"
@@ -84,6 +91,13 @@ export default function MissionPage() {
         </div>
       )}
 
+      {/* Say it plainly when the split does not add up to the whole. */}
+      {u && perAccount && u.unattributedTurns7d > 0 && (
+        <p className="font-mono text-[11px] text-dim">
+          {tf('run.acctUnattributed', { n: u.unattributedTurns7d })} · {t('run.acctCliHint')}
+        </p>
+      )}
+
       {sorted.length === 0 && (
         <EmptyState title={t('run.noLiveTitle')} hint={t('run.noLiveHint')} />
       )}
@@ -92,6 +106,72 @@ export default function MissionPage() {
         {sorted.map((s) => <Tile key={s.sessionId} s={s} now={now} />)}
       </div>
     </div>
+  );
+}
+
+/**
+ * One subscription's rolling windows. The headline is still our cost estimate,
+ * but the bars are the real quota percentages the desktop app records — the
+ * only numbers that actually say how close this account is to its limit.
+ */
+function AccountWindowCard({ a }: { a: AccountUsageWindow }) {
+  const { t, tf } = useT();
+  const pu = a.planUsage;
+  const fh = pu?.fivehourPct ?? null;
+  const sd = pu?.sevendayPct ?? null;
+  const worst = Math.max(fh ?? 0, sd ?? 0);
+
+  return (
+    <StatCard
+      /* the account's own name is user data — never translated */
+      label={a.name}
+      accent="user"
+      value={fmtCost(a.window5h.estCostUsd)}
+      topRight={
+        fh != null && sd != null ? (
+          <span className={cn('flex items-center gap-1 font-mono text-[11px]', worst >= 90 ? 'text-danger' : worst >= 60 ? 'text-user' : 'text-dim')}>
+            <Gauge size={11} aria-hidden /> {tf('run.acctPct', { fh, sd })}
+          </span>
+        ) : (
+          <Gauge size={11} className="text-dim" aria-hidden />
+        )
+      }
+      sub={
+        <span className="flex flex-col gap-1.5">
+          <span>{tf('run.acctSpend', { cost: fmtCost(a.window7d.estCostUsd), prompts: a.window5h.prompts, turns: a.window5h.turns })}</span>
+          {fh != null && <QuotaBar label={t('run.acct5h')} pct={fh} />}
+          {sd != null && <QuotaBar label={t('run.acct7d')} pct={sd} />}
+          <span className="font-mono text-[11px]">
+            {pu == null || pu.sampledAt == null
+              ? t('run.acctNoMeter')
+              : pu.stale
+                ? tf('run.acctStale', { when: fmtRelative(pu.sampledAt) })
+                : sd != null && sd >= 100
+                  ? <span className="text-danger">{t('run.acctMaxed')}</span>
+                  : null}
+          </span>
+        </span>
+      }
+    />
+  );
+}
+
+/** Real quota consumption, 0-100 — not an estimate against a guessed ceiling. */
+function QuotaBar({ label, pct }: { label: string; pct: number }) {
+  const hot = pct >= 90;
+  return (
+    <span className="flex flex-col gap-0.5">
+      <span className="flex items-baseline justify-between font-mono text-[10px] uppercase tracking-wider text-dim">
+        <span>{label}</span>
+        <span className={cn(hot && 'text-danger')}>{pct}%</span>
+      </span>
+      <span className="h-1 overflow-hidden rounded-full bg-raise">
+        <span
+          className={cn('block h-full rounded-full', hot ? 'bg-danger' : pct >= 60 ? 'bg-user' : 'bg-claude/70')}
+          style={{ width: `${Math.max(Math.min(pct, 100), 2)}%` }}
+        />
+      </span>
+    </span>
   );
 }
 
