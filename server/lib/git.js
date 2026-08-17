@@ -39,6 +39,61 @@ function gitLog(dir, sinceMs) {
 }
 
 /**
+ * Parse `git log --pretty=format:\x01%H\t%at\t%s --numstat` output.
+ * Exported so it can be tested without a real repository.
+ * @param {string} stdout
+ */
+export function parseNumstat(stdout) {
+  const commits = [];
+  for (const chunk of String(stdout).split('\x01')) {
+    if (!chunk.trim()) continue;
+    const lines = chunk.split('\n');
+    const [sha, at, ...subj] = lines[0].split('\t');
+    if (!sha || !at) continue;
+    const files = [];
+    for (const l of lines.slice(1)) {
+      // binary files report "-\t-\tpath"
+      const m = l.match(/^(\d+|-)\t(\d+|-)\t(.+)$/);
+      if (!m) continue;
+      files.push({
+        path: m[3],
+        added: m[1] === '-' ? 0 : Number(m[1]),
+        removed: m[2] === '-' ? 0 : Number(m[2]),
+      });
+    }
+    commits.push({
+      sha,
+      ts: Number(at) * 1000,
+      message: (subj.join('\t') || '').slice(0, 200),
+      files,
+    });
+  }
+  return commits;
+}
+
+/**
+ * Commits with per-file counts inside a window. Read live — file paths are
+ * never persisted (see the CLAUDE.md rule on file contents).
+ * @param {string} dir
+ * @param {number} fromMs
+ * @param {number} toMs
+ * @returns {Promise<ReturnType<typeof parseNumstat> | null>} null = not a repo / git missing / timeout
+ */
+export function commitsWithFiles(dir, fromMs, toMs) {
+  return new Promise((resolve) => {
+    execFile(
+      'git',
+      ['-C', dir, 'log',
+       `--since=${new Date(fromMs).toISOString()}`,
+       `--until=${new Date(toMs).toISOString()}`,
+       '--no-merges', '--pretty=format:\x01%H\t%at\t%s', '--numstat'],
+      { timeout: 20_000, maxBuffer: 16 * 1024 * 1024, windowsHide: true },
+      (err, stdout) => resolve(err ? null : parseNumstat(String(stdout)))
+    );
+  });
+}
+
+/**
  * @param {import('node:sqlite').DatabaseSync} db
  */
 export function createGitScanner(db) {
