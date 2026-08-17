@@ -50,12 +50,19 @@ export async function buildDayReview(db, projectId, from, to) {
   }
 
   for (const r of /** @type {any[]} */ (db.prepare(
-    `SELECT ts, substr(text,1,${CAPS.promptChars}) t FROM prompts
+    `SELECT ts, length(text) AS full_len, substr(text,1,${CAPS.promptChars}) t FROM prompts
       WHERE project_id IN (${ph}) AND ts>=? AND ts<? AND kind IN ('typed','command') ORDER BY ts`
   ).all(...ids, fromMs, toMs))) {
     const d = dayOf(localDayKey(r.ts));
-    if (d.prompts.length < CAPS.promptsPerDay) d.prompts.push(String(r.t).replace(/\s+/g, ' '));
-    else d.promptsOmitted++;
+    if (d.prompts.length < CAPS.promptsPerDay) {
+      // A prompt cut mid-sentence at the SQL level must not read to the
+      // model as a complete prompt — carry the original length so
+      // renderReviewInput can say so.
+      d.prompts.push({
+        text: String(r.t).replace(/\s+/g, ' '),
+        truncatedFrom: r.full_len > CAPS.promptChars ? r.full_len : null,
+      });
+    } else d.promptsOmitted++;
   }
 
   if (jph) {
@@ -86,13 +93,7 @@ export async function buildDayReview(db, projectId, from, to) {
   }
 
   const days = [...byDay.values()].sort((a, b) => a.date.localeCompare(b.date));
-
-  // Commits are an input now: without their shas in the hash, a new commit
-  // leaves a cached review looking current while describing a stale repo.
-  const inputHash = sha1(JSON.stringify({
-    v: 1,
-    d: days.map((d) => [d.date, d.sessions.length, d.prompts.length, d.journal.length, d.commits.map((c) => c.sha)]),
-  }));
+  const inputHash = reviewInputHash(days);
 
   const cached = /** @type {any} */ (db.prepare(
     'SELECT markdown, input_hash, created_at FROM project_reviews WHERE project_path=? AND period_from=? AND period_to=?'
@@ -105,6 +106,32 @@ export async function buildDayReview(db, projectId, from, to) {
       ? { markdown: cached.markdown, createdAt: cached.created_at, stale: cached.input_hash !== inputHash }
       : null,
   };
+}
+
+/**
+ * Hash the parts of the assembled days that determine whether a cached
+ * review is still current. Commits are an input: without their shas in the
+ * hash, a new commit leaves a cached review looking current while
+ * describing a stale repo. Omitted-counts are an input too: once a day
+ * hits `CAPS.commitsPerDay` / `CAPS.promptsPerDay`, further commits/prompts
+ * on that day stop appearing in the arrays below — without hashing the
+ * omitted counts, a 41st commit on an already-capped day would change
+ * nothing in the hash.
+ * @param {any[]} days
+ */
+export function reviewInputHash(days) {
+  return sha1(JSON.stringify({
+    v: 2,
+    d: days.map((d) => [
+      d.date,
+      d.sessions.length,
+      d.prompts.length,
+      d.promptsOmitted,
+      d.journal.length,
+      d.commits.map((c) => c.sha),
+      d.commitsOmitted,
+    ]),
+  }));
 }
 
 const fmtH = (ms) => {
@@ -130,7 +157,10 @@ export function renderReviewInput(review) {
     for (const s of d.sessions) sec.push(`- session: ${s.title} (${fmtH(s.claudeMs)}, ${s.promptCount} prompts)`);
     if (d.prompts.length) {
       sec.push('- prompts:');
-      for (const t of d.prompts) sec.push(`    ${t}`);
+      for (const pr of d.prompts) {
+        const marker = pr.truncatedFrom ? ` … (truncated from ${pr.truncatedFrom} chars)` : '';
+        sec.push(`    ${pr.text}${marker}`);
+      }
       if (d.promptsOmitted) sec.push(`    … ${d.promptsOmitted} more prompts this day`);
     }
     for (const j of d.journal) sec.push(`- note: ${j}`);
