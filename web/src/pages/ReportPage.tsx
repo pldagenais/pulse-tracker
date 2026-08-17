@@ -344,10 +344,12 @@ function SummaryMarkdown({ markdown }: { markdown: string }) {
   for (const raw of markdown.split('\n')) {
     const line = raw.trim();
     if (!line) continue;
-    if (line.startsWith('###')) {
+    if (/^#{2,}\s*/.test(line)) {
+      // Feature-summary headings are "### <Category>"; day-review headings
+      // are "## <date>" — both are headings, so match either depth.
       blocks.push(
         <h4 key={i++} className="mt-3 font-mono text-[12px] uppercase tracking-wider text-claude first:mt-0">
-          {fmtDayLoose(line.replace(/^#+\s*/, ''))}
+          {fmtDayLoose(line.replace(/^#{2,}\s*/, ''))}
         </h4>
       );
     } else if (/^[-*•]\s+/.test(line)) {

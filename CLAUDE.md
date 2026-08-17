@@ -5,10 +5,11 @@ Local Windows app that tracks Claude Code usage. Node 24 server (plain ESM JS) +
 ## How it works
 - Parses Claude Code transcripts (`~/.claude/projects/**/*.jsonl`) incrementally (byte-offset cursors in `ingest_files`), backfilled + watched live via chokidar.
 - Real-time signals via Claude Code hooks (`~/.claude/settings.json` → `hooks/notify.mjs` → POST /api/hook).
-- SQLite via built-in `node:sqlite` (run node with `--disable-warning=ExperimentalWarning`), DB at `data/tracker.db` — a rebuildable cache EXCEPT journal/settings/hook_events/accounts/session_accounts/meta (preserved by `npm run reingest`).
+- SQLite via built-in `node:sqlite` (run node with `--disable-warning=ExperimentalWarning`), DB at `data/tracker.db` — a rebuildable cache EXCEPT journal/settings/hook_events/accounts/session_accounts/project_reviews/meta (preserved by `npm run reingest`).
 - Multiple Claude subscriptions share one `~/.claude`, so transcripts alone cannot say which account ran a session (they carry no account identity). Attribution comes from the hook env — `CLAUDE_USER_DATA_DIR` (desktop profile, exact) or `CLAUDE_TRACKER_ACCOUNT` — resolved in `server/lib/accounts.js`, first-write-wins. A terminal CLI shares one credential store, so its account is a user-set setting (`cli_account_uuid`), never guessed. Attribution CANNOT be re-derived: losing `session_accounts` loses it permanently.
 - Never writes anything under `~/.claude/projects` (read-only source data) — SOLE exception: the memory editor (`server/routes/memory.js`) may write `*.md` inside `<project>/memory/` folders (never `.jsonl`), with rotating backups in `data/memory-backups/`.
 - That same editor also writes project-committed memory (`CLAUDE.md`, `CLAUDE.local.md`, `.claude/CLAUDE.md`) **inside the user's own repos**, discovered by walking up from each tracked project cwd (`server/lib/memory-files.js`). A path is writable iff that discovery pass produced it — membership in the returned index, never a pattern match on request input — and `violatesProjectsInvariant()` re-enforces the `~/.claude/projects` rule independently.
+- Day-by-day project reviews (`server/lib/review.js`) read commits and per-file counts LIVE from git (`commitsWithFiles`) and never persist file paths; output is cached in `project_reviews`, keyed by project PATH because reingest reassigns project ids. Reviews run on `llm_model` (default Opus 5) through `llm_config_dir`, so they can bill to a second subscription.
 
 ## Commands
 - `npm start` — run server (serves built web/dist)
