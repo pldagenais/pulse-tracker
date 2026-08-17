@@ -7,6 +7,9 @@ import { recomputeAll } from '../lib/aggregate.js';
 import { rangeDaily, firstActivityDay } from '../lib/stats.js';
 import { csvEscape, todayKey, addDays, safeJsonParse } from '../lib/util.js';
 import { log } from '../lib/logger.js';
+import {
+  resolveAccount, recordSessionAccount, setSessionAccount, listAccounts, readPlanUsage, syncAccounts,
+} from '../lib/accounts.js';
 
 const ok = (res, data) => res.json({ ok: true, data });
 const bad = (res, msg, code = 400) => res.status(code).json({ ok: false, error: msg });
@@ -40,8 +43,20 @@ export function mountSystem(app, ctx) {
       if (typeof b.cwd === 'string' && path.normalize(b.cwd).toLowerCase() === LLM_CWD) return;
       db.prepare('INSERT INTO hook_events(ts, event, session_id, cwd, payload) VALUES(?,?,?,?,?)').run(
         Date.now(), b.hook_event_name, b.session_id ?? null, b.cwd ?? null,
-        JSON.stringify({ prompt: typeof b.prompt === 'string' ? b.prompt.slice(0, 500) : undefined, source: b.source, reason: b.reason })
+        JSON.stringify({
+          prompt: typeof b.prompt === 'string' ? b.prompt.slice(0, 500) : undefined,
+          source: b.source,
+          reason: b.reason,
+          // keep the raw marker so attribution stays auditable after the fact
+          userDataDir: b._tracker?.userDataDir ?? undefined,
+        })
       );
+      // Which subscription is this? The hook env is the only signal that says
+      // so — transcripts carry no account identity. First write wins.
+      if (b.session_id) {
+        const acct = resolveAccount(db, b._tracker);
+        if (acct) recordSessionAccount(db, b.session_id, acct);
+      }
       live.onHook(b);
       if (typeof b.transcript_path === 'string' && b.transcript_path.endsWith('.jsonl')) {
         scheduleIngest(b.transcript_path);
@@ -74,15 +89,46 @@ export function mountSystem(app, ctx) {
   // publish exact quotas) — set via settings, blank = just show consumption.
   app.get('/api/usage-window', (req, res) => {
     const now = Date.now();
-    const win = (since) => {
-      const t = /** @type {any} */ (db.prepare(
-        'SELECT coalesce(sum(est_cost_usd),0) cost, coalesce(sum(output_tokens),0) outTok, count(*) turns FROM turns WHERE started_at>?'
-      ).get(since));
-      const p = /** @type {any} */ (db.prepare("SELECT count(*) c FROM prompts WHERE ts>? AND kind IN ('typed','command')").get(since));
+    /** @param {number} since @param {string} [acct] scope to one subscription */
+    const win = (since, acct) => {
+      const t = /** @type {any} */ (acct
+        ? db.prepare(
+          `SELECT coalesce(sum(t.est_cost_usd),0) cost, coalesce(sum(t.output_tokens),0) outTok, count(*) turns
+             FROM turns t JOIN session_accounts sa ON sa.session_id=t.session_id
+            WHERE t.started_at>? AND sa.account_uuid=?`
+        ).get(since, acct)
+        : db.prepare(
+          'SELECT coalesce(sum(est_cost_usd),0) cost, coalesce(sum(output_tokens),0) outTok, count(*) turns FROM turns WHERE started_at>?'
+        ).get(since));
+      const p = /** @type {any} */ (acct
+        ? db.prepare(
+          `SELECT count(*) c FROM prompts p JOIN session_accounts sa ON sa.session_id=p.session_id
+            WHERE p.ts>? AND sa.account_uuid=? AND p.kind IN ('typed','command')`
+        ).get(since, acct)
+        : db.prepare("SELECT count(*) c FROM prompts WHERE ts>? AND kind IN ('typed','command')").get(since));
       return { estCostUsd: t.cost, outputTokens: t.outTok, turns: t.turns, prompts: p.c };
     };
     const h5 = win(now - 5 * 3600_000);
     const d7 = win(now - 7 * 24 * 3600_000);
+
+    // Two subscriptions have two independent rolling quotas, so a single
+    // combined figure overstates the pressure on each. Prefer the real
+    // percentages the desktop app records; fall back to our cost estimate.
+    const planUsage = readPlanUsage(db);
+    const byAccount = listAccounts(db).map((a) => ({
+      accountUuid: a.uuid,
+      name: a.name,
+      isDefault: a.isDefault,
+      window5h: win(now - 5 * 3600_000, a.uuid),
+      window7d: win(now - 7 * 24 * 3600_000, a.uuid),
+      planUsage: planUsage.find((u) => u.accountUuid === a.uuid) ?? null,
+    }));
+    // Turns we could not attribute — say so rather than let the split silently
+    // fail to add up to the combined total.
+    const unattributed = /** @type {any} */ (db.prepare(
+      `SELECT count(*) c FROM turns t LEFT JOIN session_accounts sa ON sa.session_id=t.session_id
+        WHERE t.started_at>? AND sa.session_id IS NULL`
+    ).get(now - 7 * 24 * 3600_000));
     // oldest turn inside the 5h window tells when pressure starts easing
     const oldest = /** @type {any} */ (db.prepare('SELECT min(started_at) t FROM turns WHERE started_at>?').get(now - 5 * 3600_000));
     // live burn: credited output tokens over the trailing 15 minutes
@@ -96,7 +142,74 @@ export function mountSystem(app, ctx) {
       burnTokPerMin: Math.round(burn.o / 15),
       ceiling5hUsd: Number(getSetting(db, 'window5h_budget_usd', '')) || null,
       ceiling7dUsd: Number(getSetting(db, 'window7d_budget_usd', '')) || null,
+      byAccount,
+      unattributedTurns7d: unattributed.c,
     });
+  });
+
+  /* ── accounts (two subscriptions on one machine) ──────────────────── */
+
+  app.get('/api/accounts', (req, res) => {
+    const usage = readPlanUsage(db);
+    // Join through sessions: attribution outlives a reingest (by design), so
+    // rows can point at sessions the rebuild no longer produced. Counting
+    // those would overstate the per-account totals.
+    const counts = db.prepare(
+      `SELECT sa.account_uuid, count(*) c FROM session_accounts sa
+         JOIN sessions s ON s.id=sa.session_id GROUP BY sa.account_uuid`
+    ).all();
+    ok(res, {
+      accounts: listAccounts(db).map((a) => ({
+        ...a,
+        sessions: Number(counts.find((c) => c.account_uuid === a.uuid)?.c ?? 0),
+        planUsage: usage.find((u) => u.accountUuid === a.uuid) ?? null,
+      })),
+      // A terminal CLI shares one credential store, so only the user knows
+      // which account it is signed into.
+      cliAccountUuid: getSetting(db, 'cli_account_uuid', '') || null,
+      unattributedSessions: /** @type {any} */ (db.prepare(
+        'SELECT count(*) c FROM sessions s LEFT JOIN session_accounts sa ON sa.session_id=s.id WHERE sa.session_id IS NULL'
+      ).get()).c,
+    });
+  });
+
+  app.get('/api/plan-usage', (req, res) => {
+    syncAccounts(db); // cheap (mtime-cached) and picks up a profile added since boot
+    ok(res, readPlanUsage(db));
+  });
+
+  app.put('/api/accounts/:uuid', (req, res) => {
+    const uuid = String(req.params.uuid);
+    const exists = db.prepare('SELECT 1 FROM accounts WHERE uuid=?').get(uuid);
+    if (!exists) return bad(res, 'unknown account', 404);
+    const label = req.body?.label;
+    if (label !== undefined) {
+      const clean = String(label).trim().slice(0, 60);
+      db.prepare('UPDATE accounts SET label=? WHERE uuid=?').run(clean || null, uuid);
+    }
+    ok(res, listAccounts(db).find((a) => a.uuid === uuid) ?? null);
+  });
+
+  app.put('/api/accounts/cli/current', (req, res) => {
+    const uuid = req.body?.accountUuid;
+    if (uuid === null || uuid === undefined || uuid === '') {
+      setSetting(db, 'cli_account_uuid', '');
+      return ok(res, { cliAccountUuid: null });
+    }
+    const clean = String(uuid);
+    if (!db.prepare('SELECT 1 FROM accounts WHERE uuid=?').get(clean)) return bad(res, 'unknown account', 404);
+    setSetting(db, 'cli_account_uuid', clean);
+    ok(res, { cliAccountUuid: clean });
+  });
+
+  app.put('/api/sessions/:id/account', (req, res) => {
+    const id = String(req.params.id);
+    if (!db.prepare('SELECT 1 FROM sessions WHERE id=?').get(id)) return bad(res, 'unknown session', 404);
+    const uuid = String(req.body?.accountUuid ?? '');
+    if (!db.prepare('SELECT 1 FROM accounts WHERE uuid=?').get(uuid)) return bad(res, 'unknown account', 404);
+    setSessionAccount(db, id, uuid);
+    sse.broadcast('data-changed', { sessions: [id] });
+    ok(res, { sessionId: id, accountUuid: uuid, source: 'manual' });
   });
 
   /* ── alerts (bell drawer) + outbound webhooks ─────────────────────── */

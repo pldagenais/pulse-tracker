@@ -6,7 +6,7 @@ import type {
   ModelRow, HourRow, ToolUsageData, SkillUsageData, McpUsageData, CompactionTaxData, FocusStatsData, ProjectSplitRow,
   ActivityRow, ReplayData, ParseFailuresData, JobsData, PromptTemplate, UsageWindowData, PrOutcomesData, ScheduledJob,
   TokenFlowData, ProjectCalendarData, ErrorFeedData, ClaudeAiData, McpServersData, ManageInventory,
-  AlertsData, Webhook, RoutinesData, MemoryTree,
+  AlertsData, Webhook, RoutinesData, MemoryTree, AccountsData,
 } from './types';
 
 export interface PromptFilters {
@@ -270,6 +270,13 @@ export const usageWindowQuery = () =>
     queryKey: ['usage-window'],
     queryFn: () => api.get<UsageWindowData>('/api/usage-window'),
     refetchInterval: 60_000,
+  });
+
+export const accountsQuery = () =>
+  queryOptions({
+    queryKey: ['accounts'],
+    queryFn: () => api.get<AccountsData>('/api/accounts'),
+    staleTime: 60_000,
   });
 
 export const jobsQuery = () =>

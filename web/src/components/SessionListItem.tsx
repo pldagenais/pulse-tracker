@@ -1,14 +1,25 @@
 import { useSearchParams } from 'react-router';
+import { useQuery } from '@tanstack/react-query';
 import { Star } from 'lucide-react';
 import type { SessionSummary } from '../lib/types';
 import { projectColor, USER_COLOR } from '../lib/colors';
 import { fmtCost, fmtDuration, fmtRelative, fmtModel, plural } from '../lib/format';
+import { accountsQuery } from '../lib/queries';
 import { useT } from '../lib/i18n';
 import { Badge } from './ui';
+
+/** Exact signals vs. inferred ones — the badge must not imply more than we know. */
+const EXACT_SOURCES = new Set(['env-profile', 'env-explicit', 'manual']);
 
 export function SessionListItem({ s, showProject = true }: { s: SessionSummary; showProject?: boolean }) {
   const { t } = useT();
   const [params, setParams] = useSearchParams();
+  // Shared react-query cache, so this is one request for the whole list.
+  const accounts = useQuery(accountsQuery());
+  const all = accounts.data?.accounts ?? [];
+  // Only worth showing once there is more than one subscription to tell apart.
+  const account = all.length > 1 ? all.find((a) => a.uuid === s.accountUuid) : undefined;
+  const exact = EXACT_SOURCES.has(s.accountSource ?? '');
   const open = () => {
     const next = new URLSearchParams(params);
     next.set('session', s.id);
@@ -33,6 +44,15 @@ export function SessionListItem({ s, showProject = true }: { s: SessionSummary; 
             : ''}
         </span>
       </span>
+      {account && (
+        <Badge
+          tone={exact ? 'user' : 'default'}
+          className={exact ? undefined : 'opacity-70'}
+        >
+          {account.label || account.email?.split('@')[0] || account.uuid.slice(0, 6)}
+          {!exact && '?'}
+        </Badge>
+      )}
       {s.endedAt == null && s.lastEventAt != null && Date.now() - s.lastEventAt < 30 * 60_000 && (
         <Badge tone="ok">{t('projects.openBadge')}</Badge>
       )}

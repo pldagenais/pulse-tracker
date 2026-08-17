@@ -96,6 +96,17 @@ export const run = {
   'run.setEstimateHint': { en: ' · set a 5h estimate in Status to see a fill bar', fr: ' · définissez une estimation 5 h dans État pour voir la jauge' },
   'run.win7d': { en: 'trailing 7 days', fr: '7 derniers jours' },
   'run.apiEquiv': { en: 'est. API-equivalent consumed this week', fr: 'équivalent API est. consommé cette semaine' },
+
+  // per-subscription rate windows (two accounts = two independent quotas)
+  'run.acctPct': { en: '5h {fh}% · 7d {sd}%', fr: '5 h {fh} % · 7 j {sd} %' },
+  'run.acct5h': { en: '5h quota', fr: 'quota 5 h' },
+  'run.acct7d': { en: '7d quota', fr: 'quota 7 j' },
+  'run.acctSpend': { en: '{cost} est. · {prompts} prompts · {turns} turns', fr: '{cost} est. · {prompts} invites · {turns} tours' },
+  'run.acctStale': { en: 'meter last read {when}', fr: 'compteur lu {when}' },
+  'run.acctNoMeter': { en: 'no live meter — open this account’s app', fr: 'aucun compteur en direct — ouvrez l’app de ce compte' },
+  'run.acctMaxed': { en: 'quota exhausted', fr: 'quota épuisé' },
+  'run.acctUnattributed': { en: '{n} turns not attributed to an account', fr: '{n} tours non attribués à un compte' },
+  'run.acctCliHint': { en: 'assign unmarked sessions in Status', fr: 'attribuez les sessions sans marqueur dans État' },
   'run.fleet': { en: 'fleet', fr: 'flotte' },
   'run.nWorking': { en: '{n} working', fr: '{n} au travail' },
   'run.nNeedYou': { en: '{n} need you · ', fr: '{n} vous attendent · ' },
