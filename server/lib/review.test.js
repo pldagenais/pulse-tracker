@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { openDb } from './db.js';
-import { CAPS, renderReviewInput, buildDayReview, reviewInputHash, MAX_REVIEW_INPUT_CHARS } from './review.js';
+import { CAPS, renderReviewInput, renderReviewInputFitted, buildDayReview, reviewInputHash, MAX_REVIEW_INPUT_CHARS } from './review.js';
 
 function tmpDb() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rev-'));
@@ -193,4 +193,72 @@ test('GET /api/review falls back to the most recent cached review when the exact
 
 test('MAX_REVIEW_INPUT_CHARS is a positive, sane guard', () => {
   assert.equal(MAX_REVIEW_INPUT_CHARS, 400_000);
+});
+
+test('renderReviewInputFitted picks tier \'full\' with no reduction NOTE when the full render already fits the budget', () => {
+  const review = base([day({
+    commits: [{ sha: 'ccc3333', message: 'small change', files: [{ path: 'x.js', added: 1, removed: 1 }], filesOmitted: 0, added: 1, removed: 1 }],
+  })]);
+  const full = renderReviewInput(review);
+  const fitted = renderReviewInputFitted(review, full.length);
+  assert.equal(fitted.tier, 'full');
+  assert.equal(fitted.fits, true);
+  assert.equal(fitted.text, full);
+  assert.doesNotMatch(fitted.text, /^NOTE:/m);
+});
+
+test('renderReviewInputFitted collapses to the day-files tier and aggregates churn per path across commits when full detail does not fit', () => {
+  // Enough distinct per-file lines that the full tier's repeated
+  // "    path (+a/-r)" lines outweigh the day-files NOTE's fixed overhead,
+  // so the aggregated rendering is genuinely smaller — a tiny fixture with
+  // only 1-2 files per commit can come out LARGER than full once the NOTE
+  // is added, and would wrongly fall through to commits-only.
+  const manyFiles = (prefix, n) => Array.from({ length: n }, (_, i) => ({ path: `${prefix}${i}.js`, added: i + 1, removed: i }));
+  const review = base([day({
+    commits: [
+      { sha: 'aaa1111', message: 'first commit', filesOmitted: 0, added: 66, removed: 45, files: [...manyFiles('src/shared', 10), { path: 'src/a.js', added: 10, removed: 2 }] },
+      { sha: 'bbb2222', message: 'second commit', filesOmitted: 0, added: 61, removed: 46, files: [...manyFiles('src/shared', 10), { path: 'src/a.js', added: 5, removed: 1 }] },
+    ],
+  })]);
+  const full = renderReviewInput(review);
+  const { text, tier, fits } = renderReviewInputFitted(review, full.length - 1);
+  assert.equal(tier, 'day-files');
+  assert.equal(fits, true);
+  assert.match(text, /NOTE: this is a large window, so per-commit file lists were collapsed/);
+  // src/a.js summed across both commits: +10+5=15 / -2+1=3
+  assert.match(text, /files touched:.*src\/a\.js \(\+15\/-3\)/);
+  assert.match(text, /- commit aaa1111: first commit \(\+66\/-45\)/);
+  assert.match(text, /- commit bbb2222: second commit \(\+61\/-46\)/);
+  // per-file lines from the full tier must be gone
+  assert.doesNotMatch(text, /src\/a\.js \(\+10\/-2\)/);
+});
+
+test('renderReviewInputFitted falls back to the commits-only tier and states the reduction when the day-files summary still does not fit', () => {
+  const commits = Array.from({ length: 5 }, (_, i) => ({
+    sha: `abc000${i}`,
+    message: `change number ${i}`,
+    filesOmitted: 0,
+    added: 55,
+    removed: 45,
+    files: Array.from({ length: 10 }, (_, j) => ({ path: `src/module${i}/file${j}.js`, added: j + 1, removed: j })),
+  }));
+  const review = base([day({ commits })]);
+  // Discover the commits-only tier's own length (budget 0 forces the
+  // coarsest tier regardless of fit), then request exactly that budget —
+  // it fits commits-only but not the strictly larger day-files rendering.
+  const commitsOnlyLen = renderReviewInputFitted(review, 0).text.length;
+  const { text, tier, fits } = renderReviewInputFitted(review, commitsOnlyLen);
+  assert.equal(tier, 'commits-only');
+  assert.equal(fits, true);
+  assert.match(text, /NOTE: this is a very large window, so file-level detail was omitted/);
+  assert.doesNotMatch(text, /files touched:/);
+});
+
+test('renderReviewInputFitted reports fits:false when even the commits-only tier exceeds the budget', () => {
+  const review = base([day({
+    commits: [{ sha: 'ddd4444', message: 'x'.repeat(500), files: [], filesOmitted: 0, added: 0, removed: 0 }],
+  })]);
+  const { tier, fits } = renderReviewInputFitted(review, 10);
+  assert.equal(tier, 'commits-only');
+  assert.equal(fits, false);
 });

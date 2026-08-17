@@ -10,14 +10,22 @@ import { dayBounds, localDayKey, sha1 } from './util.js';
 export const CAPS = { filesPerCommit: 20, commitsPerDay: 40, promptsPerDay: 60, promptChars: 1000 };
 
 /**
- * Ceiling on the rendered LLM input, in characters. `range=all` and `custom`
+ * Budget for the rendered LLM input, in characters. `range=all` and `custom`
  * can span an unbounded window (`all` resolves `from` to the GLOBAL first
- * activity day, not the project's), so without a guard a huge window would
- * spend Opus quota on a prompt too large to be useful. The generate handler
- * refuses BEFORE calling runClaude once renderReviewInput's output exceeds
- * this.
+ * activity day, not the project's), so without a cap a huge window would
+ * spend Opus quota on a prompt too large to be useful — 400k chars is
+ * ~100k tokens; the measured worst case (869k chars / ~217k tokens) would
+ * overflow the model's context and cost a fortune.
+ *
+ * This is a budget the renderer FITS INTO, not a refusal threshold: when the
+ * full per-commit-file-list rendering exceeds it, `renderReviewInputFitted`
+ * backs off through coarser tiers (see below) before the generate handler
+ * refuses. It only refuses if even the coarsest tier still doesn't fit.
  */
 export const MAX_REVIEW_INPUT_CHARS = 400_000;
+
+/** How many of a day's most-changed files (by added+removed) to list in the `day-files` tier. */
+const DAY_FILES_TOP_N = 15;
 
 /**
  * @param {import('node:sqlite').DatabaseSync} db
@@ -105,6 +113,12 @@ export async function buildDayReview(db, projectId, from, to, lang = 'en') {
         message: String(c.message).replace(/\s+/g, ' '),
         files: c.files.slice(0, CAPS.filesPerCommit),
         filesOmitted: Math.max(0, c.files.length - CAPS.filesPerCommit),
+        // Totals over ALL files in the commit, not just the capped slice
+        // above — the coarser render tiers show one line per commit with no
+        // file list, so the +added/-removed on that line must still be
+        // accurate even when filesPerCommit truncated the detail.
+        added: c.files.reduce((n, f) => n + f.added, 0),
+        removed: c.files.reduce((n, f) => n + f.removed, 0),
       });
     }
   }
@@ -184,18 +198,68 @@ const fmtH = (ms) => {
   return m % 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${Math.floor(m / 60)}h`;
 };
 
-/** The document handed to the model. Caps are declared, never silent. */
-export function renderReviewInput(review) {
+/**
+ * Aggregate a day's per-commit file lists into per-path totals, for the
+ * `day-files` tier's "files touched" summary line.
+ * @param {any[]} commits
+ * @returns {[string, { added: number, removed: number }][]} sorted by total churn, descending
+ */
+function aggregateDayChurn(commits) {
+  /** @type {Map<string, { added: number, removed: number }>} */
+  const byPath = new Map();
+  for (const c of commits) {
+    for (const f of c.files) {
+      const e = byPath.get(f.path) ?? { added: 0, removed: 0 };
+      e.added += f.added;
+      e.removed += f.removed;
+      byPath.set(f.path, e);
+    }
+  }
+  return [...byPath.entries()].sort(
+    (a, b) => (b[1].added + b[1].removed) - (a[1].added + a[1].removed)
+  );
+}
+
+/**
+ * Render the document handed to the model, at one of three levels of detail.
+ * Caps and reductions are always declared, never silent.
+ * - `full`: every commit followed by its per-file lines (current behavior).
+ * - `day-files`: one line per commit (with its own +added/-removed), plus a
+ *   single per-day summary of the day's most-changed files.
+ * - `commits-only`: one line per commit, no file information at all.
+ * @param {any} review
+ * @param {'full'|'day-files'|'commits-only'} tier
+ */
+function renderTier(review, tier) {
   const parts = [`# ${review.project.name} — ${review.from} to ${review.to}`];
+  if (tier === 'day-files') {
+    parts.push('NOTE: this is a large window, so per-commit file lists were collapsed into a per-day summary of the most-changed files.');
+  } else if (tier === 'commits-only') {
+    parts.push('NOTE: this is a very large window, so file-level detail was omitted; only commit subjects are listed.');
+  }
   if (!review.gitAvailable) {
     parts.push('NOTE: commit data was unavailable for this project (the checkout is missing or is not a git repository). Say so in the output; do not imply nothing was committed.');
   }
   for (const d of review.days) {
     const sec = [`## ${d.date}`];
-    for (const c of d.commits) {
-      sec.push(`- commit ${c.sha}: ${c.message}`);
-      for (const f of c.files) sec.push(`    ${f.path} (+${f.added}/-${f.removed})`);
-      if (c.filesOmitted) sec.push(`    … ${c.filesOmitted} more files`);
+    if (tier === 'full') {
+      for (const c of d.commits) {
+        sec.push(`- commit ${c.sha}: ${c.message}`);
+        for (const f of c.files) sec.push(`    ${f.path} (+${f.added}/-${f.removed})`);
+        if (c.filesOmitted) sec.push(`    … ${c.filesOmitted} more files`);
+      }
+    } else {
+      for (const c of d.commits) {
+        sec.push(`- commit ${c.sha}: ${c.message} (+${c.added ?? 0}/-${c.removed ?? 0})`);
+      }
+      if (tier === 'day-files') {
+        const churn = aggregateDayChurn(d.commits);
+        if (churn.length) {
+          const top = churn.slice(0, DAY_FILES_TOP_N);
+          sec.push(`  files touched: ${top.map(([p, e]) => `${p} (+${e.added}/-${e.removed})`).join(', ')}`);
+          if (churn.length > top.length) sec.push(`  … ${churn.length - top.length} more files`);
+        }
+      }
     }
     if (d.commitsOmitted) sec.push(`- … ${d.commitsOmitted} more commits this day`);
     for (const s of d.sessions) sec.push(`- session: ${s.title} (${fmtH(s.claudeMs)}, ${s.promptCount} prompts)`);
@@ -213,6 +277,35 @@ export function renderReviewInput(review) {
   return parts.join('\n\n');
 }
 
+/** The document handed to the model, at full per-commit-file-list detail. */
+export function renderReviewInput(review) {
+  return renderTier(review, 'full');
+}
+
+/**
+ * Render at the most detailed tier ('full' → 'day-files' → 'commits-only')
+ * that fits within `budget` chars, so a large window degrades gracefully
+ * instead of being refused outright. Whichever tier is used below `full` is
+ * declared once at the top of the document (see renderTier) so neither the
+ * model nor the reader is left assuming the detail is complete. Only when
+ * even `commits-only` exceeds the budget does the caller need to refuse.
+ * @param {any} review
+ * @param {number} [budget]
+ * @returns {{ text: string, tier: 'full'|'day-files'|'commits-only', fits: boolean }}
+ */
+export function renderReviewInputFitted(review, budget = MAX_REVIEW_INPUT_CHARS) {
+  /** @type {Array<'full'|'day-files'|'commits-only'>} */
+  const tiers = ['full', 'day-files', 'commits-only'];
+  for (let i = 0; i < tiers.length; i++) {
+    const tier = tiers[i];
+    const text = renderTier(review, tier);
+    const fits = text.length <= budget;
+    if (fits || i === tiers.length - 1) return { text, tier, fits };
+  }
+  // unreachable — tiers is non-empty and the loop always returns on its last iteration
+  throw new Error('unreachable');
+}
+
 export const DAY_REVIEW_INSTRUCTIONS = `You are writing a detailed, day-by-day change review for a software project, from a raw activity log of AI-assisted development sessions and git commits.
 Output STRICT markdown, nothing else — no preamble, no closing remarks, no code fences.
 
@@ -227,6 +320,7 @@ Rules:
 - Never invent work that is not in the log. If a day has prompts but no commits, describe what was worked on and say it was not committed.
 - If the log says commit data was unavailable, state that once at the top.
 - If the log shows "… N more files" or "… N more commits", say the day was truncated rather than implying the list is complete.
+- If the log's top NOTE says per-commit file lists were collapsed into a per-day summary, or that file-level detail was omitted, say so once near the top of your output rather than implying every commit's file list is complete.
 
 Activity log follows.
 
