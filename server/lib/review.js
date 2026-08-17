@@ -10,6 +10,16 @@ import { dayBounds, localDayKey, sha1 } from './util.js';
 export const CAPS = { filesPerCommit: 20, commitsPerDay: 40, promptsPerDay: 60, promptChars: 1000 };
 
 /**
+ * Ceiling on the rendered LLM input, in characters. `range=all` and `custom`
+ * can span an unbounded window (`all` resolves `from` to the GLOBAL first
+ * activity day, not the project's), so without a guard a huge window would
+ * spend Opus quota on a prompt too large to be useful. The generate handler
+ * refuses BEFORE calling runClaude once renderReviewInput's output exceeds
+ * this.
+ */
+export const MAX_REVIEW_INPUT_CHARS = 400_000;
+
+/**
  * @param {import('node:sqlite').DatabaseSync} db
  * @param {number} projectId
  * @param {string} from local YYYY-MM-DD
@@ -70,7 +80,11 @@ export async function buildDayReview(db, projectId, from, to, lang = 'en') {
     for (const j of /** @type {any[]} */ (db.prepare(
       `SELECT ts, text FROM journal WHERE project_path IN (${jph}) AND ts>=? AND ts<? ORDER BY ts`
     ).all(...paths, fromMs, toMs))) {
-      dayOf(localDayKey(j.ts)).journal.push(j.text);
+      // Collapse whitespace like prompts already are (above) — an
+      // uncollapsed newline followed by "## " or "- " would forge a fake
+      // day heading or bullet into renderReviewInput's markdown-ish output,
+      // attributing another day's journal note to the wrong section.
+      dayOf(localDayKey(j.ts)).journal.push(String(j.text).replace(/\s+/g, ' '));
     }
   }
 
@@ -86,7 +100,9 @@ export async function buildDayReview(db, projectId, from, to, lang = 'en') {
       if (d.commits.length >= CAPS.commitsPerDay) { d.commitsOmitted++; continue; }
       d.commits.push({
         sha: c.sha.slice(0, 7),
-        message: c.message,
+        // Collapsed for symmetry with journal text above — a multi-line
+        // commit message could otherwise inject its own fake "## "/"- " line.
+        message: String(c.message).replace(/\s+/g, ' '),
         files: c.files.slice(0, CAPS.filesPerCommit),
         filesOmitted: Math.max(0, c.files.length - CAPS.filesPerCommit),
       });
@@ -94,18 +110,36 @@ export async function buildDayReview(db, projectId, from, to, lang = 'en') {
   }
 
   const days = [...byDay.values()].sort((a, b) => a.date.localeCompare(b.date));
-  const inputHash = reviewInputHash(days);
+  const inputHash = reviewInputHash(days, gitAvailable);
 
-  const cached = /** @type {any} */ (db.prepare(
+  const exact = /** @type {any} */ (db.prepare(
     'SELECT markdown, input_hash, created_at FROM project_reviews WHERE project_path=? AND period_from=? AND period_to=? AND lang=?'
   ).get(p.path, from, to, lang));
 
+  // Rolling presets (7d/30d/60d, and "all") resolve to a literal from/to that
+  // shifts at every local midnight, so an exact-key match almost never
+  // survives a day. Without a fallback, a paid review is orphaned the moment
+  // the window moves and the user pays for a fresh Opus run daily. Fall back
+  // to the most recent review for this project+lang, marked `stale` with the
+  // window it actually covers — never delete or evict the orphaned rows.
+  let cached = null;
+  if (exact) {
+    cached = { markdown: exact.markdown, createdAt: exact.created_at, stale: exact.input_hash !== inputHash, coversFrom: from, coversTo: to };
+  } else {
+    const fallback = /** @type {any} */ (db.prepare(
+      'SELECT markdown, created_at, period_from, period_to FROM project_reviews WHERE project_path=? AND lang=? ORDER BY created_at DESC LIMIT 1'
+    ).get(p.path, lang));
+    if (fallback) {
+      cached = {
+        markdown: fallback.markdown, createdAt: fallback.created_at, stale: true,
+        coversFrom: fallback.period_from, coversTo: fallback.period_to,
+      };
+    }
+  }
+
   return {
     project: { id: p.id, name: p.name, path: p.path },
-    from, to, days, gitAvailable, inputHash,
-    cached: cached
-      ? { markdown: cached.markdown, createdAt: cached.created_at, stale: cached.input_hash !== inputHash }
-      : null,
+    from, to, days, gitAvailable, inputHash, cached,
   };
 }
 
@@ -118,11 +152,20 @@ export async function buildDayReview(db, projectId, from, to, lang = 'en') {
  * on that day stop appearing in the arrays below — without hashing the
  * omitted counts, a 41st commit on an already-capped day would change
  * nothing in the hash.
+ *
+ * `gitAvailable` is hashed too (v3): if a checkout is temporarily missing,
+ * the rendered input says so and the review reflects that. If the checkout
+ * later reappears with no commits in the window, `days` can come out
+ * identical to the missing-checkout run — without `gitAvailable` in the
+ * hash, that stale "commit data was unavailable" review would report itself
+ * current forever.
  * @param {any[]} days
+ * @param {boolean} gitAvailable
  */
-export function reviewInputHash(days) {
+export function reviewInputHash(days, gitAvailable) {
   return sha1(JSON.stringify({
-    v: 2,
+    v: 3,
+    g: gitAvailable,
     d: days.map((d) => [
       d.date,
       d.sessions.length,
@@ -177,7 +220,7 @@ Structure, exactly:
 - One "## <date>" heading per day that has activity, in chronological order. Format the date like "Mon, Aug 16".
 - Inside each day, group that day's work by FEATURE or subsystem, one "**<Feature name>**" line per group, ordered most to least significant that day. Use the log's own vocabulary for names, never generic labels like "Misc".
 - Under each group, 1-6 bullets ("- ..."). Each bullet must state the concrete change in past tense AND what it enables, and cite the specific files or commits it came from in backticks.
-- End each day with a single "_<n> commits · +<added>/-<removed>_" line when commit data exists for that day.
+- End each day with a single "**<n> commits · +<added>/-<removed>**" line when commit data exists for that day. Use double asterisks, not underscores — the viewer only renders \`code\` and **bold**, not _italics_.
 
 Rules:
 - Be specific and thorough. Prefer naming the actual file or symbol over vague phrasing.

@@ -70,7 +70,12 @@ interface DayReviewData {
   to: string;
   gitAvailable: boolean;
   days: { date: string; prompts: { text: string; truncatedFrom: number | null }[]; journal: string[] }[];
-  cached: { markdown: string; createdAt: number; stale: boolean } | null;
+  // coversFrom/coversTo is the window the cached markdown actually describes.
+  // It differs from `from`/`to` (the currently selected range) whenever the
+  // server fell back to the most recent review for this project — a rolling
+  // preset's exact from/to shifts at every local midnight, so an exact-key
+  // cache hit almost never survives a day.
+  cached: { markdown: string; createdAt: number; stale: boolean; coversFrom: string; coversTo: string } | null;
 }
 
 const dayReviewQuery = (projectId: number | null, from: string | null, to: string | null) =>
@@ -91,14 +96,19 @@ export default function ReportPage() {
   );
   const projectId = params.get('project') ? Number(params.get('project')) : roots[0]?.id ?? null;
   const range = (params.get('range') as Range) ?? 'all';
-  const mode = (params.get('mode') as Mode) ?? 'summary';
+  // Day-by-day review needs the local server (git checkout + Opus quota) —
+  // same reason the PDF export link is local-only. Force summary mode in
+  // cloud mode even if a stale ?mode=review URL is bookmarked.
+  const mode: Mode = MODE === 'local' ? ((params.get('mode') as Mode) ?? 'summary') : 'summary';
   const to = range === 'custom' ? (params.get('to') ?? todayKey()) : todayKey();
   const from = range === 'all' ? null
     : range === 'custom' ? (params.get('from') ?? addDays(to, -29))
     : addDays(to, -RANGE_DAYS[range]!);
   const effectiveTo = range === 'all' ? null : to;
 
-  const report = useQuery(reportQuery(projectId, from, effectiveTo));
+  // Only fetched in summary mode — review mode has its own query and must
+  // not depend on this one (see the render split below).
+  const report = useQuery({ ...reportQuery(projectId, from, effectiveTo), enabled: projectId != null && mode === 'summary' });
   const queryClient = useQueryClient();
   const summarize = useMutation({
     mutationFn: () =>
@@ -148,14 +158,17 @@ export default function ReportPage() {
             <option key={p.id} value={p.id}>{p.name}</option>
           ))}
         </select>
-        <SegmentedControl<Mode>
-          value={mode}
-          onChange={(v) => setParam('mode', v === 'summary' ? null : v)}
-          options={[
-            { value: 'summary', label: t('report.modeSummary') },
-            { value: 'review', label: t('report.modeReview') },
-          ]}
-        />
+        {/* day-by-day review needs the local server (git + Opus quota), same as the PDF export below */}
+        {MODE === 'local' && (
+          <SegmentedControl<Mode>
+            value={mode}
+            onChange={(v) => setParam('mode', v === 'summary' ? null : v)}
+            options={[
+              { value: 'summary', label: t('report.modeSummary') },
+              { value: 'review', label: t('report.modeReview') },
+            ]}
+          />
+        )}
         <SegmentedControl<Range>
           options={[
             { value: 'all', label: t('report.allTime') },
@@ -221,7 +234,7 @@ export default function ReportPage() {
 
       {mode === 'summary' && report.isLoading && <SkeletonRows n={8} />}
 
-      {d && (
+      {mode === 'summary' && d && (
         <>
           <div>
             <h1 className="font-display text-xl font-medium text-ink">{tf('report.changelogTitle', { name: d.project.name })}</h1>
@@ -241,96 +254,113 @@ export default function ReportPage() {
             <StatCard label={t('report.estCost')} value={fmtCost(d.totals.estCostUsd)} sub={d.totals.prCount ? plural(d.totals.prCount, 'pull request') : undefined} />
           </div>
 
-          {mode === 'summary' && (
-            <>
-              {d.summary && (
-                <Card
-                  title={`${t('report.aiSummaryTitle')}${d.summary.stale ? t('report.aiSummaryStale') : ''}`}
-                  action={<span className="font-mono text-[11px] text-dim">{fmtRelative(d.summary.createdAt)}</span>}
-                  bodyClassName={cn('p-4', d.summary.stale && 'opacity-70')}
-                >
-                  <SummaryMarkdown markdown={d.summary.markdown} />
-                </Card>
-              )}
-
-              {d.days.length === 0 && <EmptyState title={t('report.noActivity')} />}
-
-              {[...d.days].reverse().map((day) => (
-                <section key={day.date}>
-                  <h3 className="microlabel sticky top-0 z-10 -mx-1 bg-bg/95 px-1 py-2 backdrop-blur">
-                    {fmtDayFull(day.date)}
-                    {day.prompts > 0 && <span className="ml-2 normal-case tracking-normal">· {plural(day.prompts, 'prompt')}</span>}
-                  </h3>
-                  <div className="space-y-1.5">
-                    {day.sessions.map((s) => (
-                      <div key={s.id} className="rounded-md border border-line bg-surface px-3.5 py-2.5">
-                        <div className="flex items-baseline gap-2">
-                          <span className="font-mono text-[11px] text-dim">{fmtClock(s.startedAt)}</span>
-                          <span className="min-w-0 flex-1 truncate text-[14px] text-ink">{s.title}</span>
-                          <span className="shrink-0 font-mono text-[12px] text-claude">{fmtDuration(s.claudeMs)}</span>
-                        </div>
-                        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11px] text-dim">
-                          {s.worktreeBranch && <Badge>{s.worktreeBranch}</Badge>}
-                          <span>{plural(s.promptCount, 'prompt')}</span>
-                          {s.linesAdded > 0 && (
-                            <span>
-                              <span className="text-ok">+{fmtCount(s.linesAdded)}</span> <span className="text-danger">−{fmtCount(s.linesRemoved)}</span> {t('report.lines')}
-                            </span>
-                          )}
-                          {s.prLinks.map((pr) => (
-                            <a key={pr.url} href={pr.url} target="_blank" rel="noreferrer" className="text-mid hover:text-claude">
-                              {pr.repo ? `${pr.repo}#${pr.number}` : `PR #${pr.number}`} ↗
-                            </a>
-                          ))}
-                        </div>
-                      </div>
-                    ))}
-                    {day.journal.map((j) => (
-                      <div key={j.id} className="rounded-md border border-line/60 bg-surface2/40 px-3.5 py-2 text-xs leading-5 text-ink/85">
-                        ✎ {renderInline(j.text)}
-                      </div>
-                    ))}
-                  </div>
-                </section>
-              ))}
-            </>
+          {d.summary && (
+            <Card
+              title={`${t('report.aiSummaryTitle')}${d.summary.stale ? t('report.aiSummaryStale') : ''}`}
+              action={<span className="font-mono text-[11px] text-dim">{fmtRelative(d.summary.createdAt)}</span>}
+              bodyClassName={cn('p-4', d.summary.stale && 'opacity-70')}
+            >
+              <SummaryMarkdown markdown={d.summary.markdown} />
+            </Card>
           )}
 
-          {mode === 'review' && (
+          {d.days.length === 0 && <EmptyState title={t('report.noActivity')} />}
+
+          {[...d.days].reverse().map((day) => (
+            <section key={day.date}>
+              <h3 className="microlabel sticky top-0 z-10 -mx-1 bg-bg/95 px-1 py-2 backdrop-blur">
+                {fmtDayFull(day.date)}
+                {day.prompts > 0 && <span className="ml-2 normal-case tracking-normal">· {plural(day.prompts, 'prompt')}</span>}
+              </h3>
+              <div className="space-y-1.5">
+                {day.sessions.map((s) => (
+                  <div key={s.id} className="rounded-md border border-line bg-surface px-3.5 py-2.5">
+                    <div className="flex items-baseline gap-2">
+                      <span className="font-mono text-[11px] text-dim">{fmtClock(s.startedAt)}</span>
+                      <span className="min-w-0 flex-1 truncate text-[14px] text-ink">{s.title}</span>
+                      <span className="shrink-0 font-mono text-[12px] text-claude">{fmtDuration(s.claudeMs)}</span>
+                    </div>
+                    <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11px] text-dim">
+                      {s.worktreeBranch && <Badge>{s.worktreeBranch}</Badge>}
+                      <span>{plural(s.promptCount, 'prompt')}</span>
+                      {s.linesAdded > 0 && (
+                        <span>
+                          <span className="text-ok">+{fmtCount(s.linesAdded)}</span> <span className="text-danger">−{fmtCount(s.linesRemoved)}</span> {t('report.lines')}
+                        </span>
+                      )}
+                      {s.prLinks.map((pr) => (
+                        <a key={pr.url} href={pr.url} target="_blank" rel="noreferrer" className="text-mid hover:text-claude">
+                          {pr.repo ? `${pr.repo}#${pr.number}` : `PR #${pr.number}`} ↗
+                        </a>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+                {day.journal.map((j) => (
+                  <div key={j.id} className="rounded-md border border-line/60 bg-surface2/40 px-3.5 py-2 text-xs leading-5 text-ink/85">
+                    ✎ {renderInline(j.text)}
+                  </div>
+                ))}
+              </div>
+            </section>
+          ))}
+        </>
+      )}
+
+      {/* Review mode is intentionally independent of `d` (report.data) — it
+          has its own query and must render (including its own error state)
+          whether or not the unrelated summary query succeeds. */}
+      {mode === 'review' && (
+        <>
+          {review.isLoading && <SkeletonRows n={8} />}
+          {review.isError && (
+            <div className="font-mono text-[11px] text-danger">{String((review.error as Error).message)}</div>
+          )}
+          {review.data && (
+            <div>
+              <h1 className="font-display text-xl font-medium text-ink">{tf('report.changelogTitle', { name: review.data.project.name })}</h1>
+              <div className="mt-0.5 font-mono text-[12px] text-dim">
+                {fmtDay(review.data.from)} — {fmtDay(review.data.to)} · {review.data.project.path}
+              </div>
+            </div>
+          )}
+          {review.data && !review.data.gitAvailable && (
+            <div className="rounded border border-user/40 bg-user/5 px-3 py-2 font-mono text-[11px] text-user">
+              {t('report.reviewNoGit')}
+            </div>
+          )}
+          <button
+            onClick={() => generate.mutate()}
+            disabled={generate.isPending || !review.data || review.data.days.length === 0}
+            className="flex items-center gap-1.5 rounded-md border border-claude/50 bg-claude/10 px-3 py-1.5 font-mono text-[11px] uppercase tracking-wider text-claude hover:bg-claude/20 disabled:opacity-40"
+          >
+            {generate.isPending ? <RefreshCw size={12} className="animate-spin" /> : <Sparkles size={12} />}
+            {generate.isPending ? t('report.reviewing')
+              : review.data?.cached && !review.data.cached.stale ? t('report.refreshReview')
+              : review.data?.cached?.stale ? t('report.updateReview')
+              : t('report.reviewBtn')}
+          </button>
+          {generate.isError && (
+            <div className="font-mono text-[11px] text-danger">{String((generate.error as Error).message)}</div>
+          )}
+          {review.data?.cached && (
             <>
-              {review.isLoading && <SkeletonRows n={8} />}
-              {review.data && !review.data.gitAvailable && (
+              {(review.data.cached.coversFrom !== review.data.from || review.data.cached.coversTo !== review.data.to) && (
                 <div className="rounded border border-user/40 bg-user/5 px-3 py-2 font-mono text-[11px] text-user">
-                  {t('report.reviewNoGit')}
+                  {tf('report.reviewCoversOther', { from: fmtDay(review.data.cached.coversFrom), to: fmtDay(review.data.cached.coversTo) })}
                 </div>
               )}
-              <button
-                onClick={() => generate.mutate()}
-                disabled={generate.isPending || !review.data || review.data.days.length === 0}
-                className="flex items-center gap-1.5 rounded-md border border-claude/50 bg-claude/10 px-3 py-1.5 font-mono text-[11px] uppercase tracking-wider text-claude hover:bg-claude/20 disabled:opacity-40"
+              <Card
+                title={`${t('report.modeReview')}${review.data.cached.stale ? t('report.aiSummaryStale') : ''}`}
+                action={<span className="font-mono text-[11px] text-dim">{fmtRelative(review.data.cached.createdAt)}</span>}
+                bodyClassName={cn('p-4', review.data.cached.stale && 'opacity-70')}
               >
-                {generate.isPending ? <RefreshCw size={12} className="animate-spin" /> : <Sparkles size={12} />}
-                {generate.isPending ? t('report.reviewing')
-                  : review.data?.cached && !review.data.cached.stale ? t('report.refreshReview')
-                  : review.data?.cached?.stale ? t('report.updateReview')
-                  : t('report.reviewBtn')}
-              </button>
-              {generate.isError && (
-                <div className="font-mono text-[11px] text-danger">{String((generate.error as Error).message)}</div>
-              )}
-              {review.data?.cached && (
-                <Card
-                  title={`${t('report.modeReview')}${review.data.cached.stale ? t('report.aiSummaryStale') : ''}`}
-                  action={<span className="font-mono text-[11px] text-dim">{fmtRelative(review.data.cached.createdAt)}</span>}
-                  bodyClassName={cn('p-4', review.data.cached.stale && 'opacity-70')}
-                >
-                  <SummaryMarkdown markdown={review.data.cached.markdown} />
-                </Card>
-              )}
-              {!review.data?.cached && !generate.isPending && (
-                <EmptyState title={t('report.reviewEmpty')} />
-              )}
+                <SummaryMarkdown markdown={review.data.cached.markdown} />
+              </Card>
             </>
+          )}
+          {review.data && !review.data.cached && !generate.isPending && (
+            <EmptyState title={t('report.reviewEmpty')} />
           )}
         </>
       )}

@@ -84,6 +84,16 @@ export const misc = {
     en: "Optional. Fires once per session when a single session's est. cost passes this.",
     fr: 'Optionnel. Déclenche une fois par session quand le coût est. d’une session dépasse ce seuil.',
   },
+  'status.llmConfigDirLabel': { en: 'review config dir', fr: 'dossier de config (revue)' },
+  'status.llmConfigDirHint': {
+    en: 'Optional. A separate CLAUDE_CONFIG_DIR so the day-by-day review bills to a second Claude subscription instead of your interactive CLI. One-time setup: run CLAUDE_CONFIG_DIR=<dir> claude, then /login as that account. Leave empty to use the CLI’s default login.',
+    fr: 'Optionnel. Un CLAUDE_CONFIG_DIR distinct pour que la revue jour par jour facture un second abonnement Claude plutôt que votre CLI interactif. Configuration unique : exécutez CLAUDE_CONFIG_DIR=<dossier> claude, puis /login avec ce compte. Laissez vide pour utiliser la connexion par défaut du CLI.',
+  },
+  'status.llmModelLabel': { en: 'review model', fr: 'modèle de revue' },
+  'status.llmModelHint': {
+    en: 'Model id used to write the day-by-day review, e.g. claude-opus-5.',
+    fr: 'Identifiant du modèle utilisé pour rédiger la revue jour par jour, p. ex. claude-opus-5.',
+  },
   'status.saving': { en: 'saving…', fr: 'enregistrement…' },
   'status.saveRecompute': { en: 'save & recompute', fr: 'enregistrer et recalculer' },
   'status.savedRecomputing': { en: 'saved — recomputing sessions…', fr: 'enregistré — recalcul des sessions…' },
@@ -159,6 +169,10 @@ export const misc = {
   },
   'report.reviewEmpty': { en: 'No review yet for this range.', fr: 'Aucune revue pour cette période.' },
   'report.reviewLink': { en: '30-day review →', fr: 'revue 30 jours →' },
+  'report.reviewCoversOther': {
+    en: 'This review covers {from} – {to}, not the currently selected range.',
+    fr: 'Cette revue couvre {from} – {to}, pas la période actuellement sélectionnée.',
+  },
 
   /* ---- Alert bell ---- */
   'alerts.ariaCount': { en: 'Alerts — {n} new', fr: 'Alertes — {n} nouvelle(s)' },

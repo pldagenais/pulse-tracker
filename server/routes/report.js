@@ -5,7 +5,7 @@ import { runClaude } from '../lib/llm.js';
 import { dayBounds, addDays, todayKey, localDayKey, safeJsonParse, sha1 } from '../lib/util.js';
 import { firstActivityDay } from '../lib/stats.js';
 import { log } from '../lib/logger.js';
-import { buildDayReview, renderReviewInput, DAY_REVIEW_INSTRUCTIONS } from '../lib/review.js';
+import { buildDayReview, renderReviewInput, DAY_REVIEW_INSTRUCTIONS, MAX_REVIEW_INPUT_CHARS } from '../lib/review.js';
 import { getSetting } from '../lib/db.js';
 
 const ok = (res, data) => res.json({ ok: true, data });
@@ -245,10 +245,16 @@ export function mountReport(app, ctx) {
       // Refuse before spending quota, like changes-summary does.
       if (!review.days.length) return bad(res, 'no activity in this range');
 
+      const input = renderReviewInput(review);
+      // range=all / custom can span an unbounded window — refuse BEFORE
+      // calling runClaude rather than spending quota on an oversized prompt.
+      if (input.length > MAX_REVIEW_INPUT_CHARS) {
+        return bad(res, `this range is too large to review (${input.length.toLocaleString('en-US')} chars, max ${MAX_REVIEW_INPUT_CHARS.toLocaleString('en-US')}) — narrow the date range and try again`);
+      }
+
       const key = `review|${review.project.path}|${range.from}|${range.to}|${lang}`;
       let job = inflight.get(key);
       if (!job) {
-        const input = renderReviewInput(review);
         const model = getSetting(db, 'llm_model', 'claude-opus-5');
         const configDir = getSetting(db, 'llm_config_dir', '') || '';
         log.info(`day-review: project ${projectId} ${range.from}..${range.to} (${input.length} chars, ${model})`);
