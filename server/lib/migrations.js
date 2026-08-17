@@ -438,4 +438,24 @@ CREATE TABLE session_accounts(
 CREATE INDEX idx_session_accounts_account ON session_accounts(account_uuid);
 `,
   },
+  {
+    // Day-by-day change reviews. Keyed by PATH, not id: reingest drops
+    // `projects` (reassigning ids) but not this table, so an id-keyed row
+    // would silently re-attach to the wrong project — the same hazard v12
+    // worked around for project_summaries. Opus-generated and not
+    // re-derivable, so it stays out of reingest's drop list.
+    version: 14,
+    sql: `
+CREATE TABLE project_reviews(
+  project_path TEXT NOT NULL,
+  period_from  TEXT NOT NULL,
+  period_to    TEXT NOT NULL,
+  input_hash   TEXT NOT NULL,
+  model        TEXT,
+  markdown     TEXT NOT NULL,
+  created_at   INTEGER NOT NULL,
+  PRIMARY KEY(project_path, period_from, period_to)
+);
+`,
+  },
 ];
