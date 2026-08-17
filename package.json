@@ -13,6 +13,7 @@
     "setup": "node --disable-warning=ExperimentalWarning scripts/setup.mjs",
     "reingest": "node --disable-warning=ExperimentalWarning scripts/reingest.mjs",
     "smoke": "node --disable-warning=ExperimentalWarning scripts/smoke-parse.mjs",
+    "test": "node --disable-warning=ExperimentalWarning --test server/http.test.js server/lib/config-file.test.js server/lib/git.test.js server/lib/memory-files.test.js server/lib/cloud/keys.test.js server/lib/cloud/redact.test.js server/lib/migrations.test.js server/lib/review.test.js",
     "check": "tsc -p jsconfig.json"
   },
   "dependencies": {

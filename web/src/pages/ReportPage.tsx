@@ -59,7 +59,32 @@ const reportQuery = (projectId: number | null, from: string | null, to: string |
     staleTime: 15_000,
   });
 
-type Range = 'all' | '90d' | '30d';
+type Range = 'all' | '90d' | '60d' | '30d' | '7d' | 'custom';
+type Mode = 'summary' | 'review';
+
+const RANGE_DAYS: Partial<Record<Range, number>> = { '90d': 89, '60d': 59, '30d': 29, '7d': 6 };
+
+interface DayReviewData {
+  project: { id: number; name: string; path: string };
+  from: string;
+  to: string;
+  gitAvailable: boolean;
+  days: { date: string; prompts: { text: string; truncatedFrom: number | null }[]; journal: string[] }[];
+  // coversFrom/coversTo is the window the cached markdown actually describes.
+  // It differs from `from`/`to` (the currently selected range) whenever the
+  // server fell back to the most recent review for this project — a rolling
+  // preset's exact from/to shifts at every local midnight, so an exact-key
+  // cache hit almost never survives a day.
+  cached: { markdown: string; createdAt: number; stale: boolean; coversFrom: string; coversTo: string } | null;
+}
+
+const dayReviewQuery = (projectId: number | null, from: string | null, to: string | null) =>
+  queryOptions({
+    queryKey: ['day-review', projectId, from, to, getLocale()],
+    queryFn: () => api.get<DayReviewData>(`/api/review/${projectId}${qs({ from, to, lang: getLocale() })}`),
+    enabled: projectId != null,
+    staleTime: 15_000,
+  });
 
 export default function ReportPage() {
   const [params, setParams] = useSearchParams();
@@ -71,10 +96,19 @@ export default function ReportPage() {
   );
   const projectId = params.get('project') ? Number(params.get('project')) : roots[0]?.id ?? null;
   const range = (params.get('range') as Range) ?? 'all';
-  const to = todayKey();
-  const from = range === 'all' ? null : addDays(to, range === '90d' ? -89 : -29);
+  // Day-by-day review needs the local server (git checkout + Opus quota) —
+  // same reason the PDF export link is local-only. Force summary mode in
+  // cloud mode even if a stale ?mode=review URL is bookmarked.
+  const mode: Mode = MODE === 'local' ? ((params.get('mode') as Mode) ?? 'summary') : 'summary';
+  const to = range === 'custom' ? (params.get('to') ?? todayKey()) : todayKey();
+  const from = range === 'all' ? null
+    : range === 'custom' ? (params.get('from') ?? addDays(to, -29))
+    : addDays(to, -RANGE_DAYS[range]!);
+  const effectiveTo = range === 'all' ? null : to;
 
-  const report = useQuery(reportQuery(projectId, from, range === 'all' ? null : to));
+  // Only fetched in summary mode — review mode has its own query and must
+  // not depend on this one (see the render split below).
+  const report = useQuery({ ...reportQuery(projectId, from, effectiveTo), enabled: projectId != null && mode === 'summary' });
   const queryClient = useQueryClient();
   const summarize = useMutation({
     mutationFn: () =>
@@ -84,6 +118,18 @@ export default function ReportPage() {
         lang: getLocale(), // AI summary follows the UI language
       }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['report'] }),
+  });
+  const review = useQuery({
+    ...dayReviewQuery(projectId, from, effectiveTo),
+    enabled: projectId != null && mode === 'review',
+  });
+  const generate = useMutation({
+    mutationFn: () =>
+      api.post<{ markdown: string }>(
+        `/api/review/${projectId}/generate${qs({ from, to: effectiveTo })}`,
+        { lang: getLocale() }
+      ),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['day-review'] }),
   });
 
   const setParam = (key: string, value: string | null) => {
@@ -96,7 +142,7 @@ export default function ReportPage() {
   };
 
   const d = report.data;
-  const pdfHref = projectId != null ? `/api/report/${projectId}/pdf${qs({ from, to: range === 'all' ? null : to })}` : '#';
+  const pdfHref = projectId != null ? `/api/report/${projectId}/pdf${qs({ from, to: effectiveTo })}` : '#';
 
   return (
     <div className="fade-up w-full space-y-4 p-5">
@@ -112,35 +158,68 @@ export default function ReportPage() {
             <option key={p.id} value={p.id}>{p.name}</option>
           ))}
         </select>
+        {/* day-by-day review needs the local server (git + Opus quota), same as the PDF export below */}
+        {MODE === 'local' && (
+          <SegmentedControl<Mode>
+            value={mode}
+            onChange={(v) => setParam('mode', v === 'summary' ? null : v)}
+            options={[
+              { value: 'summary', label: t('report.modeSummary') },
+              { value: 'review', label: t('report.modeReview') },
+            ]}
+          />
+        )}
         <SegmentedControl<Range>
           options={[
             { value: 'all', label: t('report.allTime') },
             { value: '90d', label: t('report.range90') },
+            { value: '60d', label: t('report.range60d') },
             { value: '30d', label: t('report.range30') },
+            { value: '7d', label: t('report.range7d') },
+            { value: 'custom', label: t('report.rangeCustom') },
           ]}
           value={range}
           onChange={(v) => setParam('range', v === 'all' ? null : v)}
         />
-        <div className="ml-auto flex items-center gap-2">
-          <button
-            onClick={() => summarize.mutate()}
-            disabled={summarize.isPending || !d || d.days.length === 0}
-            className="flex items-center gap-1.5 rounded-md border border-claude/50 bg-claude/10 px-3 py-2 font-mono text-[12px] uppercase tracking-wider text-claude hover:bg-claude/20 disabled:opacity-40"
-          >
-            {summarize.isPending ? <RefreshCw size={12} className="animate-spin" /> : <Sparkles size={12} />}
-            {summarize.isPending ? t('report.summarizing') : d?.summary && !d.summary.stale ? t('report.refreshSummary') : d?.summary?.stale ? t('report.updateSummary') : t('report.aiSummaryBtn')}
-          </button>
-          {/* the PDF is rendered by the local server, so the link only exists there */}
-          {MODE === 'local' && (
-            <a
-              href={pdfHref}
-              className="flex items-center gap-1.5 rounded-md border border-line px-3 py-2 font-mono text-[12px] uppercase tracking-wider text-mid hover:bg-surface2 hover:text-ink"
-              title={t('report.exportPdf')}
+        {range === 'custom' && (
+          <span className="flex items-center gap-1.5">
+            <input
+              type="date" value={from ?? ''} max={to}
+              aria-label={t('report.fromLabel')}
+              onChange={(e) => setParam('from', e.target.value || null)}
+              className="rounded border border-line bg-surface2 px-2 py-1.5 font-mono text-xs text-ink outline-none"
+            />
+            <span className="text-dim" aria-hidden>→</span>
+            <input
+              type="date" value={to} min={from ?? undefined}
+              aria-label={t('report.toLabel')}
+              onChange={(e) => setParam('to', e.target.value || null)}
+              className="rounded border border-line bg-surface2 px-2 py-1.5 font-mono text-xs text-ink outline-none"
+            />
+          </span>
+        )}
+        {mode === 'summary' && (
+          <div className="ml-auto flex items-center gap-2">
+            <button
+              onClick={() => summarize.mutate()}
+              disabled={summarize.isPending || !d || d.days.length === 0}
+              className="flex items-center gap-1.5 rounded-md border border-claude/50 bg-claude/10 px-3 py-2 font-mono text-[12px] uppercase tracking-wider text-claude hover:bg-claude/20 disabled:opacity-40"
             >
-              <FileDown size={12} /> pdf
-            </a>
-          )}
-        </div>
+              {summarize.isPending ? <RefreshCw size={12} className="animate-spin" /> : <Sparkles size={12} />}
+              {summarize.isPending ? t('report.summarizing') : d?.summary && !d.summary.stale ? t('report.refreshSummary') : d?.summary?.stale ? t('report.updateSummary') : t('report.aiSummaryBtn')}
+            </button>
+            {/* the PDF is rendered by the local server, so the link only exists there */}
+            {MODE === 'local' && (
+              <a
+                href={pdfHref}
+                className="flex items-center gap-1.5 rounded-md border border-line px-3 py-2 font-mono text-[12px] uppercase tracking-wider text-mid hover:bg-surface2 hover:text-ink"
+                title={t('report.exportPdf')}
+              >
+                <FileDown size={12} /> pdf
+              </a>
+            )}
+          </div>
+        )}
       </div>
       {summarize.isPending && (
         <div className="rounded-md border border-claude/30 bg-claude/5 px-3 py-2 font-mono text-[12px] text-claude">
@@ -153,9 +232,9 @@ export default function ReportPage() {
         </div>
       )}
 
-      {report.isLoading && <SkeletonRows n={8} />}
+      {mode === 'summary' && report.isLoading && <SkeletonRows n={8} />}
 
-      {d && (
+      {mode === 'summary' && d && (
         <>
           <div>
             <h1 className="font-display text-xl font-medium text-ink">{tf('report.changelogTitle', { name: d.project.name })}</h1>
@@ -227,6 +306,64 @@ export default function ReportPage() {
           ))}
         </>
       )}
+
+      {/* Review mode is intentionally independent of `d` (report.data) — it
+          has its own query and must render (including its own error state)
+          whether or not the unrelated summary query succeeds. */}
+      {mode === 'review' && (
+        <>
+          {review.isLoading && <SkeletonRows n={8} />}
+          {review.isError && (
+            <div className="font-mono text-[11px] text-danger">{String((review.error as Error).message)}</div>
+          )}
+          {review.data && (
+            <div>
+              <h1 className="font-display text-xl font-medium text-ink">{tf('report.changelogTitle', { name: review.data.project.name })}</h1>
+              <div className="mt-0.5 font-mono text-[12px] text-dim">
+                {fmtDay(review.data.from)} — {fmtDay(review.data.to)} · {review.data.project.path}
+              </div>
+            </div>
+          )}
+          {review.data && !review.data.gitAvailable && (
+            <div className="rounded border border-user/40 bg-user/5 px-3 py-2 font-mono text-[11px] text-user">
+              {t('report.reviewNoGit')}
+            </div>
+          )}
+          <button
+            onClick={() => generate.mutate()}
+            disabled={generate.isPending || !review.data || review.data.days.length === 0}
+            className="flex items-center gap-1.5 rounded-md border border-claude/50 bg-claude/10 px-3 py-1.5 font-mono text-[11px] uppercase tracking-wider text-claude hover:bg-claude/20 disabled:opacity-40"
+          >
+            {generate.isPending ? <RefreshCw size={12} className="animate-spin" /> : <Sparkles size={12} />}
+            {generate.isPending ? t('report.reviewing')
+              : review.data?.cached && !review.data.cached.stale ? t('report.refreshReview')
+              : review.data?.cached?.stale ? t('report.updateReview')
+              : t('report.reviewBtn')}
+          </button>
+          {generate.isError && (
+            <div className="font-mono text-[11px] text-danger">{String((generate.error as Error).message)}</div>
+          )}
+          {review.data?.cached && (
+            <>
+              {(review.data.cached.coversFrom !== review.data.from || review.data.cached.coversTo !== review.data.to) && (
+                <div className="rounded border border-user/40 bg-user/5 px-3 py-2 font-mono text-[11px] text-user">
+                  {tf('report.reviewCoversOther', { from: fmtDay(review.data.cached.coversFrom), to: fmtDay(review.data.cached.coversTo) })}
+                </div>
+              )}
+              <Card
+                title={`${t('report.modeReview')}${review.data.cached.stale ? t('report.aiSummaryStale') : ''}`}
+                action={<span className="font-mono text-[11px] text-dim">{fmtRelative(review.data.cached.createdAt)}</span>}
+                bodyClassName={cn('p-4', review.data.cached.stale && 'opacity-70')}
+              >
+                <SummaryMarkdown markdown={review.data.cached.markdown} />
+              </Card>
+            </>
+          )}
+          {review.data && !review.data.cached && !generate.isPending && (
+            <EmptyState title={t('report.reviewEmpty')} />
+          )}
+        </>
+      )}
     </div>
   );
 }
@@ -237,10 +374,12 @@ function SummaryMarkdown({ markdown }: { markdown: string }) {
   for (const raw of markdown.split('\n')) {
     const line = raw.trim();
     if (!line) continue;
-    if (line.startsWith('###')) {
+    if (/^#{2,}\s*/.test(line)) {
+      // Feature-summary headings are "### <Category>"; day-review headings
+      // are "## <date>" — both are headings, so match either depth.
       blocks.push(
         <h4 key={i++} className="mt-3 font-mono text-[12px] uppercase tracking-wider text-claude first:mt-0">
-          {fmtDayLoose(line.replace(/^#+\s*/, ''))}
+          {fmtDayLoose(line.replace(/^#{2,}\s*/, ''))}
         </h4>
       );
     } else if (/^[-*•]\s+/.test(line)) {

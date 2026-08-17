@@ -38,7 +38,13 @@ export default function ProjectDetailPage() {
         {worktreeCount > 0 && (
           <Badge tone="claude">{tf('projects.inclWorktrees', { count: plural(worktreeCount, 'worktree') })}</Badge>
         )}
-        <OpenInButtons projectId={project.id} className="ml-auto" />
+        <Link
+          to={`/report?project=${project.id}&mode=review&range=30d`}
+          className="ml-auto rounded-md border border-line px-2.5 py-1.5 font-mono text-[11px] uppercase tracking-wider text-dim hover:text-ink"
+        >
+          {t('report.reviewLink')}
+        </Link>
+        <OpenInButtons projectId={project.id} />
       </div>
       <div className="font-mono text-[12px] text-dim">{project.path}</div>
       <QuickActions projectId={project.id} />

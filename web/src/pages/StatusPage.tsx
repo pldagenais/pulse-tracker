@@ -184,6 +184,8 @@ function SettingsCard() {
   const [w5, setW5] = useState('');
   const [alertDaily, setAlertDaily] = useState('');
   const [alertSession, setAlertSession] = useState('');
+  const [llmConfigDir, setLlmConfigDir] = useState('');
+  const [llmModel, setLlmModel] = useState('');
 
   useEffect(() => {
     if (q.data) {
@@ -193,6 +195,8 @@ function SettingsCard() {
       setW5(q.data.window5hBudgetUsd != null ? String(q.data.window5hBudgetUsd) : '');
       setAlertDaily(q.data.alertDailyCostUsd != null ? String(q.data.alertDailyCostUsd) : '');
       setAlertSession(q.data.alertSessionCostUsd != null ? String(q.data.alertSessionCostUsd) : '');
+      setLlmConfigDir(q.data.llmConfigDir ?? '');
+      setLlmModel(q.data.llmModel ?? '');
     }
   }, [q.data]);
 
@@ -205,6 +209,8 @@ function SettingsCard() {
         window5hBudgetUsd: w5.trim() === '' ? null : Number(w5),
         alertDailyCostUsd: alertDaily.trim() === '' ? null : Number(alertDaily),
         alertSessionCostUsd: alertSession.trim() === '' ? null : Number(alertSession),
+        llmConfigDir: llmConfigDir.trim(),
+        llmModel: llmModel.trim(),
       }),
     onSuccess: () => setTimeout(() => queryClient.invalidateQueries(), 1500),
   });
@@ -249,6 +255,22 @@ function SettingsCard() {
         hint={t('status.alertSessionHint')}
         value={alertSession}
         onChange={setAlertSession}
+        allowEmpty
+      />
+      <Field
+        label={t('status.llmConfigDirLabel')}
+        hint={t('status.llmConfigDirHint')}
+        value={llmConfigDir}
+        onChange={setLlmConfigDir}
+        type="text"
+        allowEmpty
+      />
+      <Field
+        label={t('status.llmModelLabel')}
+        hint={t('status.llmModelHint')}
+        value={llmModel}
+        onChange={setLlmModel}
+        type="text"
         allowEmpty
       />
       <div className="flex items-center gap-3">
@@ -388,13 +410,14 @@ function NotificationsCard() {
 }
 
 function Field({
-  label, hint, value, onChange, allowEmpty,
+  label, hint, value, onChange, allowEmpty, type = 'number',
 }: {
   label: string;
   hint: string;
   value: string;
   onChange: (v: string) => void;
   allowEmpty?: boolean;
+  type?: 'number' | 'text';
 }) {
   const { t } = useT();
   return (
@@ -403,15 +426,25 @@ function Field({
         <div className="text-xs text-ink">{label}</div>
         <div className="mt-0.5 text-[12px] leading-4 text-dim">{hint}</div>
       </div>
-      <input
-        type="number"
-        min={allowEmpty ? 0 : 1}
-        max={allowEmpty ? 1000000 : 240}
-        placeholder={allowEmpty ? t('status.off') : undefined}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="w-24 rounded border border-line bg-surface2 px-2 py-1.5 font-mono text-xs text-ink outline-none placeholder:text-dim focus:border-claude/50"
-      />
+      {type === 'text' ? (
+        <input
+          type="text"
+          placeholder={t('status.off')}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="w-64 flex-1 rounded border border-line bg-surface2 px-2 py-1.5 font-mono text-xs text-ink outline-none placeholder:text-dim focus:border-claude/50"
+        />
+      ) : (
+        <input
+          type="number"
+          min={allowEmpty ? 0 : 1}
+          max={allowEmpty ? 1000000 : 240}
+          placeholder={allowEmpty ? t('status.off') : undefined}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="w-24 rounded border border-line bg-surface2 px-2 py-1.5 font-mono text-xs text-ink outline-none placeholder:text-dim focus:border-claude/50"
+        />
+      )}
     </div>
   );
 }

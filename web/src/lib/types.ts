@@ -603,6 +603,8 @@ export interface Settings {
   window5hBudgetUsd: number | null;
   alertDailyCostUsd: number | null;
   alertSessionCostUsd: number | null;
+  llmConfigDir: string | null;
+  llmModel: string;
 }
 
 export interface AlertsData {
