@@ -63,7 +63,18 @@ export function MemoryCard() {
   const [openFile, setOpenFile] = useState<MemoryFileEntry | null>(null);
   const [groupOverride, setGroupOverride] = useState<Record<string, boolean>>({});
   const [wtOpen, setWtOpen] = useState<Record<string, boolean>>({});
-  const groups = q.data?.groups ?? [];
+  // Normalize at the API boundary. The bundle and the server are separate
+  // deploys, so a freshly built page can briefly talk to a server that predates
+  // a field — exactly what happens between `npm run build:web` and the server
+  // restart. A missing collection should cost a row, not white-screen the page.
+  const groups = useMemo(
+    () => (q.data?.groups ?? []).map((g) => ({
+      ...g,
+      files: g.files ?? [],
+      worktrees: (g.worktrees ?? []).map((w) => ({ ...w, files: w.files ?? [] })),
+    })),
+    [q.data]
+  );
 
   // Groups arrive most-recently-active first; expand down the list until a row
   // budget is spent so the card opens on what you actually touched today.
