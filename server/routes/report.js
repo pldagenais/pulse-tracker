@@ -5,7 +5,7 @@ import { runClaude } from '../lib/llm.js';
 import { dayBounds, addDays, todayKey, localDayKey, safeJsonParse, sha1 } from '../lib/util.js';
 import { firstActivityDay } from '../lib/stats.js';
 import { log } from '../lib/logger.js';
-import { buildDayReview, renderReviewInput, DAY_REVIEW_INSTRUCTIONS, MAX_REVIEW_INPUT_CHARS } from '../lib/review.js';
+import { buildDayReview, renderReviewInputFitted, DAY_REVIEW_INSTRUCTIONS, MAX_REVIEW_INPUT_CHARS } from '../lib/review.js';
 import { getSetting } from '../lib/db.js';
 
 const ok = (res, data) => res.json({ ok: true, data });
@@ -245,10 +245,12 @@ export function mountReport(app, ctx) {
       // Refuse before spending quota, like changes-summary does.
       if (!review.days.length) return bad(res, 'no activity in this range');
 
-      const input = renderReviewInput(review);
-      // range=all / custom can span an unbounded window — refuse BEFORE
-      // calling runClaude rather than spending quota on an oversized prompt.
-      if (input.length > MAX_REVIEW_INPUT_CHARS) {
+      // range=all / custom can span an unbounded window — fit the rendered
+      // document to the budget by collapsing detail tier by tier rather than
+      // refusing outright; refuse BEFORE calling runClaude only if even the
+      // coarsest tier (commit subjects only, no file info) doesn't fit.
+      const { text: input, tier, fits } = renderReviewInputFitted(review);
+      if (!fits) {
         return bad(res, `this range is too large to review (${input.length.toLocaleString('en-US')} chars, max ${MAX_REVIEW_INPUT_CHARS.toLocaleString('en-US')}) — narrow the date range and try again`);
       }
 
@@ -257,7 +259,7 @@ export function mountReport(app, ctx) {
       if (!job) {
         const model = getSetting(db, 'llm_model', 'claude-opus-5');
         const configDir = getSetting(db, 'llm_config_dir', '') || '';
-        log.info(`day-review: project ${projectId} ${range.from}..${range.to} (${input.length} chars, ${model})`);
+        log.info(`day-review: project ${projectId} ${range.from}..${range.to} tier=${tier} (${input.length} chars, ${model})`);
         const langLine = lang === 'fr' ? 'Écris la réponse entièrement en français.\n' : '';
         job = runClaude(DAY_REVIEW_INSTRUCTIONS + langLine + input, {
           model, maxTurns: 1, timeoutMs: 600_000, configDir,
