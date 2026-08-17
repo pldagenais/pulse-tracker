@@ -354,6 +354,8 @@ export function mountSystem(app, ctx) {
       window5hBudgetUsd: w5 === '' ? null : Number(w5),
       alertDailyCostUsd: ad === '' ? null : Number(ad),
       alertSessionCostUsd: as === '' ? null : Number(as),
+      llmConfigDir: getSetting(db, 'llm_config_dir', '') || null,
+      llmModel: getSetting(db, 'llm_model', 'claude-opus-5'),
     });
   });
 
@@ -379,6 +381,14 @@ export function mountSystem(app, ctx) {
     optionalUsd('alert_session_cost_usd', b.alertSessionCostUsd);
     setSetting(db, 'idle_threshold_min', String(Math.round(idle)));
     setSetting(db, 'stall_cap_min', String(Math.round(cap)));
+    if (b.llmConfigDir !== undefined) {
+      setSetting(db, 'llm_config_dir', String(b.llmConfigDir ?? '').trim().slice(0, 400));
+    }
+    if (b.llmModel !== undefined) {
+      const m = String(b.llmModel ?? '').trim();
+      if (!/^[a-z0-9.-]{0,60}$/.test(m)) return bad(res, 'llmModel must be a model id');
+      setSetting(db, 'llm_model', m || 'claude-opus-5');
+    }
     ok(res, { recomputing: true });
     setImmediate(() => {
       try {

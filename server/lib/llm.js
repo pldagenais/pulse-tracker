@@ -10,15 +10,19 @@ export const LLM_DIR = path.join(DATA_DIR, 'llm');
 
 /**
  * @param {string} prompt
- * @param {{ model?: string, maxTurns?: number, timeoutMs?: number }} [opts]
+ * @param {{ model?: string, maxTurns?: number, timeoutMs?: number, configDir?: string }} [opts]
  * @returns {Promise<string>}
  */
-export function runClaude(prompt, { model = 'claude-haiku-4-5', maxTurns = 1, timeoutMs = 180_000 } = {}) {
+export function runClaude(prompt, { model = 'claude-haiku-4-5', maxTurns = 1, timeoutMs = 180_000, configDir = '' } = {}) {
   fs.mkdirSync(LLM_DIR, { recursive: true });
   return new Promise((resolve, reject) => {
+    // A separate config dir has its own .credentials.json, so reports can bill
+    // to a different subscription than the interactive CLI.
+    const env = configDir ? { ...process.env, CLAUDE_CONFIG_DIR: configDir } : process.env;
     const child = spawn('claude', ['-p', '--model', model, '--max-turns', String(maxTurns)], {
       shell: true,
       cwd: LLM_DIR,
+      env,
       windowsHide: true,
     });
     let out = '';
@@ -37,7 +41,11 @@ export function runClaude(prompt, { model = 'claude-haiku-4-5', maxTurns = 1, ti
       clearTimeout(timer);
       const stdout = out.trim();
       if (/not logged in/i.test(stdout)) {
-        reject(new Error('the claude CLI is not signed in — open a terminal, run `claude`, then `/login` once. Summaries use your Claude subscription through the CLI.'));
+        reject(new Error(
+          configDir
+            ? `the claude CLI in ${configDir} is not signed in — run \`CLAUDE_CONFIG_DIR=${configDir} claude\` then \`/login\` once.`
+            : 'the claude CLI is not signed in — open a terminal, run `claude`, then `/login` once. Summaries use your Claude subscription through the CLI.'
+        ));
       } else if (code === 0 && stdout) {
         resolve(stdout);
       } else {
