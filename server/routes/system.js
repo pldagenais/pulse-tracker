@@ -365,6 +365,13 @@ export function mountSystem(app, ctx) {
     const cap = Number(b.stallCapMin);
     if (!Number.isFinite(idle) || idle < 1 || idle > 240) return bad(res, 'idleThresholdMin must be 1-240');
     if (!Number.isFinite(cap) || cap < 1 || cap > 240) return bad(res, 'stallCapMin must be 1-240');
+    // Validated up front, alongside idle/cap/monthlyBudgetUsd, so a bad llmModel
+    // can't leave earlier setSetting writes committed (PUT must be all-or-nothing).
+    let llmModel;
+    if (b.llmModel !== undefined) {
+      llmModel = String(b.llmModel ?? '').trim();
+      if (!/^[a-z0-9.-]{0,60}$/.test(llmModel)) return bad(res, 'llmModel must be a model id');
+    }
     if (b.monthlyBudgetUsd === null || b.monthlyBudgetUsd === undefined || b.monthlyBudgetUsd === '') {
       setSetting(db, 'monthly_budget_usd', '');
     } else {
@@ -385,9 +392,7 @@ export function mountSystem(app, ctx) {
       setSetting(db, 'llm_config_dir', String(b.llmConfigDir ?? '').trim().slice(0, 400));
     }
     if (b.llmModel !== undefined) {
-      const m = String(b.llmModel ?? '').trim();
-      if (!/^[a-z0-9.-]{0,60}$/.test(m)) return bad(res, 'llmModel must be a model id');
-      setSetting(db, 'llm_model', m || 'claude-opus-5');
+      setSetting(db, 'llm_model', llmModel || 'claude-opus-5');
     }
     ok(res, { recomputing: true });
     setImmediate(() => {
