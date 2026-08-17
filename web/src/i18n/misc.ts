@@ -142,6 +142,23 @@ export const misc = {
   'report.aiSummaryStale': { en: ' · outdated (new work since)', fr: ' · périmé (nouveau travail depuis)' },
   'report.noActivity': { en: 'No recorded activity in this period', fr: 'Aucune activité enregistrée durant cette période' },
   'report.lines': { en: 'lines', fr: 'lignes' },
+  'report.modeSummary': { en: 'feature summary', fr: 'résumé par fonctionnalité' },
+  'report.modeReview': { en: 'day-by-day review', fr: 'revue jour par jour' },
+  'report.range7d': { en: '7d', fr: '7 j' },
+  'report.range60d': { en: '60d', fr: '60 j' },
+  'report.rangeCustom': { en: 'custom', fr: 'personnalisé' },
+  'report.fromLabel': { en: 'From date', fr: 'Date de début' },
+  'report.toLabel': { en: 'To date', fr: 'Date de fin' },
+  'report.reviewBtn': { en: 'generate review', fr: 'générer la revue' },
+  'report.reviewing': { en: 'writing the review…', fr: 'rédaction de la revue…' },
+  'report.refreshReview': { en: 'regenerate review', fr: 'régénérer la revue' },
+  'report.updateReview': { en: 'update review', fr: 'mettre à jour la revue' },
+  'report.reviewNoGit': {
+    en: 'No git checkout found for this project — the review is built from sessions and prompts only.',
+    fr: 'Aucun dépôt git trouvé pour ce projet — la revue est bâtie uniquement à partir des sessions et des invites.',
+  },
+  'report.reviewEmpty': { en: 'No review yet for this range.', fr: 'Aucune revue pour cette période.' },
+  'report.reviewLink': { en: '30-day review →', fr: 'revue 30 jours →' },
 
   /* ---- Alert bell ---- */
   'alerts.ariaCount': { en: 'Alerts — {n} new', fr: 'Alertes — {n} nouvelle(s)' },
